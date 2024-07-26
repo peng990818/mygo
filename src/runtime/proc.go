@@ -674,6 +674,7 @@ func getGodebugEarly() string {
 //	call runtime·mstart
 //
 // The new G calls runtime·main.
+// todo 待研究
 func schedinit() {
     lockInit(&sched.lock, lockRankSched)
     lockInit(&sched.sysmonlock, lockRankSysmon)
@@ -704,22 +705,24 @@ func schedinit() {
         gp.racectx, raceprocctx0 = raceinit()
     }
 
+    // 最大系统线程数量限制
     sched.maxmcount = 10000
 
     // The world starts stopped.
+    // go运行时是否处于停止状态
     worldStopped()
 
     moduledataverify()
-    stackinit()
-    mallocinit()
+    stackinit()  // 初始化执行栈
+    mallocinit() // 初始化内存分配器
     godebug := getGodebugEarly()
     initPageTrace(godebug) // must run after mallocinit but before anything allocates
     cpuinit(godebug)       // must run before alginit
     alginit()              // maps, hash, fastrand must not be used before this call
     fastrandinit()         // must run before mcommoninit
-    mcommoninit(gp.m, -1)
-    modulesinit()   // provides activeModules
-    typelinksinit() // uses maps, activeModules
+    mcommoninit(gp.m, -1)  // 初始化当前系统线程
+    modulesinit()          // provides activeModules
+    typelinksinit()        // uses maps, activeModules
     // 接口相关初始化
     itabsinit()  // uses activeModules
     stkobjinit() // must run before GC starts
@@ -731,7 +734,7 @@ func schedinit() {
     goenvs()
     secure()
     parsedebugvars()
-    gcinit()
+    gcinit() // 垃圾回收器初始化
 
     // if disableMemoryProfiling is set, update MemProfileRate to 0 to turn off memprofile.
     // Note: parsedebugvars may update MemProfileRate, but when disableMemoryProfiling is
@@ -743,6 +746,8 @@ func schedinit() {
 
     lock(&sched.lock)
     sched.lastpoll.Store(nanotime())
+    // 创建P
+    // 确定P的数量
     procs := ncpu
     if n, ok := atoi32(gogetenv("GOMAXPROCS")); ok && n > 0 {
         procs = n

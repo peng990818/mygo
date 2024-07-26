@@ -5,31 +5,31 @@
 package work
 
 import (
-	"context"
-	"errors"
-	"flag"
-	"fmt"
-	"go/build"
-	"os"
-	"os/exec"
-	"path/filepath"
-	"runtime"
-	"strconv"
-	"strings"
+    "context"
+    "errors"
+    "flag"
+    "fmt"
+    "go/build"
+    "os"
+    "os/exec"
+    "path/filepath"
+    "runtime"
+    "strconv"
+    "strings"
 
-	"cmd/go/internal/base"
-	"cmd/go/internal/cfg"
-	"cmd/go/internal/fsys"
-	"cmd/go/internal/load"
-	"cmd/go/internal/modload"
-	"cmd/go/internal/search"
-	"cmd/go/internal/trace"
+    "cmd/go/internal/base"
+    "cmd/go/internal/cfg"
+    "cmd/go/internal/fsys"
+    "cmd/go/internal/load"
+    "cmd/go/internal/modload"
+    "cmd/go/internal/search"
+    "cmd/go/internal/trace"
 )
 
 var CmdBuild = &base.Command{
-	UsageLine: "go build [-o output] [build flags] [packages]",
-	Short:     "compile packages and dependencies",
-	Long: `
+    UsageLine: "go build [-o output] [build flags] [packages]",
+    Short:     "compile packages and dependencies",
+    Long: `
 Build compiles the packages named by the import paths,
 along with their dependencies, but it does not install the results.
 
@@ -218,28 +218,31 @@ See also: go install, go get, go clean.
 const concurrentGCBackendCompilationEnabledByDefault = true
 
 func init() {
-	// break init cycle
-	CmdBuild.Run = runBuild
-	CmdInstall.Run = runInstall
+    // break init cycle
+    // build命令
+    CmdBuild.Run = runBuild
+    // install命令
+    CmdInstall.Run = runInstall
 
-	CmdBuild.Flag.StringVar(&cfg.BuildO, "o", "", "output file or directory")
+    // -o 参数解析
+    CmdBuild.Flag.StringVar(&cfg.BuildO, "o", "", "output file or directory")
 
-	AddBuildFlags(CmdBuild, DefaultBuildFlags)
-	AddBuildFlags(CmdInstall, DefaultBuildFlags)
-	if cfg.Experiment != nil && cfg.Experiment.CoverageRedesign {
-		AddCoverFlags(CmdBuild, nil)
-		AddCoverFlags(CmdInstall, nil)
-	}
+    AddBuildFlags(CmdBuild, DefaultBuildFlags)
+    AddBuildFlags(CmdInstall, DefaultBuildFlags)
+    if cfg.Experiment != nil && cfg.Experiment.CoverageRedesign {
+        AddCoverFlags(CmdBuild, nil)
+        AddCoverFlags(CmdInstall, nil)
+    }
 }
 
 // Note that flags consulted by other parts of the code
 // (for example, buildV) are in cmd/go/internal/cfg.
 
 var (
-	forcedAsmflags   []string // internally-forced flags for cmd/asm
-	forcedGcflags    []string // internally-forced flags for cmd/compile
-	forcedLdflags    []string // internally-forced flags for cmd/link
-	forcedGccgoflags []string // internally-forced flags for gccgo
+    forcedAsmflags   []string // internally-forced flags for cmd/asm
+    forcedGcflags    []string // internally-forced flags for cmd/compile
+    forcedLdflags    []string // internally-forced flags for cmd/link
+    forcedGccgoflags []string // internally-forced flags for gccgo
 )
 
 var BuildToolchain toolchain = noToolchain{}
@@ -251,85 +254,87 @@ var ldBuildmode string
 type buildCompiler struct{}
 
 func (c buildCompiler) Set(value string) error {
-	switch value {
-	case "gc":
-		BuildToolchain = gcToolchain{}
-	case "gccgo":
-		BuildToolchain = gccgoToolchain{}
-	default:
-		return fmt.Errorf("unknown compiler %q", value)
-	}
-	cfg.BuildToolchainName = value
-	cfg.BuildToolchainCompiler = BuildToolchain.compiler
-	cfg.BuildToolchainLinker = BuildToolchain.linker
-	cfg.BuildContext.Compiler = value
-	return nil
+    // 设置build 编辑器相关
+    switch value {
+    case "gc":
+        BuildToolchain = gcToolchain{}
+    case "gccgo":
+        BuildToolchain = gccgoToolchain{}
+    default:
+        return fmt.Errorf("unknown compiler %q", value)
+    }
+    cfg.BuildToolchainName = value
+    cfg.BuildToolchainCompiler = BuildToolchain.compiler
+    cfg.BuildToolchainLinker = BuildToolchain.linker
+    cfg.BuildContext.Compiler = value
+    return nil
 }
 
 func (c buildCompiler) String() string {
-	return cfg.BuildContext.Compiler
+    return cfg.BuildContext.Compiler
 }
 
 func init() {
-	switch build.Default.Compiler {
-	case "gc", "gccgo":
-		buildCompiler{}.Set(build.Default.Compiler)
-	}
+    // 初始化go build使用的默认编辑器
+    switch build.Default.Compiler {
+    case "gc", "gccgo":
+        buildCompiler{}.Set(build.Default.Compiler)
+    }
 }
 
 type BuildFlagMask int
 
 const (
-	DefaultBuildFlags BuildFlagMask = 0
-	OmitModFlag       BuildFlagMask = 1 << iota
-	OmitModCommonFlags
-	OmitVFlag
+    DefaultBuildFlags BuildFlagMask = 0
+    OmitModFlag       BuildFlagMask = 1 << iota
+    OmitModCommonFlags
+    OmitVFlag
 )
 
 // AddBuildFlags adds the flags common to the build, clean, get,
 // install, list, run, and test commands.
 func AddBuildFlags(cmd *base.Command, mask BuildFlagMask) {
-	base.AddBuildFlagsNX(&cmd.Flag)
-	base.AddChdirFlag(&cmd.Flag)
-	cmd.Flag.BoolVar(&cfg.BuildA, "a", false, "")
-	cmd.Flag.IntVar(&cfg.BuildP, "p", cfg.BuildP, "")
-	if mask&OmitVFlag == 0 {
-		cmd.Flag.BoolVar(&cfg.BuildV, "v", false, "")
-	}
+    base.AddBuildFlagsNX(&cmd.Flag)
+    base.AddChdirFlag(&cmd.Flag)
+    cmd.Flag.BoolVar(&cfg.BuildA, "a", false, "")
+    cmd.Flag.IntVar(&cfg.BuildP, "p", cfg.BuildP, "")
+    if mask&OmitVFlag == 0 {
+        cmd.Flag.BoolVar(&cfg.BuildV, "v", false, "")
+    }
 
-	cmd.Flag.Var(&load.BuildAsmflags, "asmflags", "")
-	cmd.Flag.Var(buildCompiler{}, "compiler", "")
-	cmd.Flag.StringVar(&cfg.BuildBuildmode, "buildmode", "default", "")
-	cmd.Flag.Var(&load.BuildGcflags, "gcflags", "")
-	cmd.Flag.Var(&load.BuildGccgoflags, "gccgoflags", "")
-	if mask&OmitModFlag == 0 {
-		base.AddModFlag(&cmd.Flag)
-	}
-	if mask&OmitModCommonFlags == 0 {
-		base.AddModCommonFlags(&cmd.Flag)
-	} else {
-		// Add the overlay flag even when we don't add the rest of the mod common flags.
-		// This only affects 'go get' in GOPATH mode, but add the flag anyway for
-		// consistency.
-		cmd.Flag.StringVar(&fsys.OverlayFile, "overlay", "", "")
-	}
-	cmd.Flag.StringVar(&cfg.BuildContext.InstallSuffix, "installsuffix", "", "")
-	cmd.Flag.Var(&load.BuildLdflags, "ldflags", "")
-	cmd.Flag.BoolVar(&cfg.BuildLinkshared, "linkshared", false, "")
-	cmd.Flag.StringVar(&cfg.BuildPGO, "pgo", "", "")
-	cmd.Flag.StringVar(&cfg.BuildPkgdir, "pkgdir", "", "")
-	cmd.Flag.BoolVar(&cfg.BuildRace, "race", false, "")
-	cmd.Flag.BoolVar(&cfg.BuildMSan, "msan", false, "")
-	cmd.Flag.BoolVar(&cfg.BuildASan, "asan", false, "")
-	cmd.Flag.Var((*tagsFlag)(&cfg.BuildContext.BuildTags), "tags", "")
-	cmd.Flag.Var((*base.StringsFlag)(&cfg.BuildToolexec), "toolexec", "")
-	cmd.Flag.BoolVar(&cfg.BuildTrimpath, "trimpath", false, "")
-	cmd.Flag.BoolVar(&cfg.BuildWork, "work", false, "")
-	cmd.Flag.Var((*buildvcsFlag)(&cfg.BuildBuildvcs), "buildvcs", "")
+    cmd.Flag.Var(&load.BuildAsmflags, "asmflags", "")
+    cmd.Flag.Var(buildCompiler{}, "compiler", "")
+    cmd.Flag.StringVar(&cfg.BuildBuildmode, "buildmode", "default", "")
+    cmd.Flag.Var(&load.BuildGcflags, "gcflags", "")
+    cmd.Flag.Var(&load.BuildGccgoflags, "gccgoflags", "")
+    if mask&OmitModFlag == 0 {
+        base.AddModFlag(&cmd.Flag)
+    }
+    if mask&OmitModCommonFlags == 0 {
+        base.AddModCommonFlags(&cmd.Flag)
+    } else {
+        // Add the overlay flag even when we don't add the rest of the mod common flags.
+        // This only affects 'go get' in GOPATH mode, but add the flag anyway for
+        // consistency.
+        cmd.Flag.StringVar(&fsys.OverlayFile, "overlay", "", "")
+    }
+    cmd.Flag.StringVar(&cfg.BuildContext.InstallSuffix, "installsuffix", "", "")
+    cmd.Flag.Var(&load.BuildLdflags, "ldflags", "")
+    cmd.Flag.BoolVar(&cfg.BuildLinkshared, "linkshared", false, "")
+    cmd.Flag.StringVar(&cfg.BuildPGO, "pgo", "", "")
+    cmd.Flag.StringVar(&cfg.BuildPkgdir, "pkgdir", "", "")
+    cmd.Flag.BoolVar(&cfg.BuildRace, "race", false, "")
+    cmd.Flag.BoolVar(&cfg.BuildMSan, "msan", false, "")
+    cmd.Flag.BoolVar(&cfg.BuildASan, "asan", false, "")
+    cmd.Flag.Var((*tagsFlag)(&cfg.BuildContext.BuildTags), "tags", "")
+    cmd.Flag.Var((*base.StringsFlag)(&cfg.BuildToolexec), "toolexec", "")
+    cmd.Flag.BoolVar(&cfg.BuildTrimpath, "trimpath", false, "")
+    cmd.Flag.BoolVar(&cfg.BuildWork, "work", false, "")
+    cmd.Flag.Var((*buildvcsFlag)(&cfg.BuildBuildvcs), "buildvcs", "")
 
-	// Undocumented, unstable debugging flags.
-	cmd.Flag.StringVar(&cfg.DebugActiongraph, "debug-actiongraph", "", "")
-	cmd.Flag.StringVar(&cfg.DebugTrace, "debug-trace", "", "")
+    // Undocumented, unstable debugging flags.
+    cmd.Flag.StringVar(&cfg.DebugActiongraph, "debug-actiongraph", "", "")
+    cmd.Flag.StringVar(&cfg.DebugTrace, "debug-trace", "", "")
 }
 
 // AddCoverFlags adds coverage-related flags to "cmd". If the
@@ -338,46 +343,46 @@ func AddBuildFlags(cmd *base.Command, mask BuildFlagMask) {
 // the CoverageRedesign experiment is disabled, -cover* flags are
 // added only to the test command.
 func AddCoverFlags(cmd *base.Command, coverProfileFlag *string) {
-	addCover := false
-	if cfg.Experiment != nil && cfg.Experiment.CoverageRedesign {
-		// New coverage enabled: both build and test commands get
-		// coverage flags.
-		addCover = true
-	} else {
-		// New coverage disabled: only test command gets cover flags.
-		addCover = coverProfileFlag != nil
-	}
-	if addCover {
-		cmd.Flag.BoolVar(&cfg.BuildCover, "cover", false, "")
-		cmd.Flag.Var(coverFlag{(*coverModeFlag)(&cfg.BuildCoverMode)}, "covermode", "")
-		cmd.Flag.Var(coverFlag{commaListFlag{&cfg.BuildCoverPkg}}, "coverpkg", "")
-	}
-	if coverProfileFlag != nil {
-		cmd.Flag.Var(coverFlag{V: stringFlag{coverProfileFlag}}, "coverprofile", "")
-	}
+    addCover := false
+    if cfg.Experiment != nil && cfg.Experiment.CoverageRedesign {
+        // New coverage enabled: both build and test commands get
+        // coverage flags.
+        addCover = true
+    } else {
+        // New coverage disabled: only test command gets cover flags.
+        addCover = coverProfileFlag != nil
+    }
+    if addCover {
+        cmd.Flag.BoolVar(&cfg.BuildCover, "cover", false, "")
+        cmd.Flag.Var(coverFlag{(*coverModeFlag)(&cfg.BuildCoverMode)}, "covermode", "")
+        cmd.Flag.Var(coverFlag{commaListFlag{&cfg.BuildCoverPkg}}, "coverpkg", "")
+    }
+    if coverProfileFlag != nil {
+        cmd.Flag.Var(coverFlag{V: stringFlag{coverProfileFlag}}, "coverprofile", "")
+    }
 }
 
 // tagsFlag is the implementation of the -tags flag.
 type tagsFlag []string
 
 func (v *tagsFlag) Set(s string) error {
-	// For compatibility with Go 1.12 and earlier, allow "-tags='a b c'" or even just "-tags='a'".
-	if strings.Contains(s, " ") || strings.Contains(s, "'") {
-		return (*base.StringsFlag)(v).Set(s)
-	}
+    // For compatibility with Go 1.12 and earlier, allow "-tags='a b c'" or even just "-tags='a'".
+    if strings.Contains(s, " ") || strings.Contains(s, "'") {
+        return (*base.StringsFlag)(v).Set(s)
+    }
 
-	// Split on commas, ignore empty strings.
-	*v = []string{}
-	for _, s := range strings.Split(s, ",") {
-		if s != "" {
-			*v = append(*v, s)
-		}
-	}
-	return nil
+    // Split on commas, ignore empty strings.
+    *v = []string{}
+    for _, s := range strings.Split(s, ",") {
+        if s != "" {
+            *v = append(*v, s)
+        }
+    }
+    return nil
 }
 
 func (v *tagsFlag) String() string {
-	return "<TagsFlag>"
+    return "<TagsFlag>"
 }
 
 // buildvcsFlag is the implementation of the -buildvcs flag.
@@ -386,19 +391,19 @@ type buildvcsFlag string
 func (f *buildvcsFlag) IsBoolFlag() bool { return true } // allow -buildvcs (without arguments)
 
 func (f *buildvcsFlag) Set(s string) error {
-	// https://go.dev/issue/51748: allow "-buildvcs=auto",
-	// in addition to the usual "true" and "false".
-	if s == "" || s == "auto" {
-		*f = "auto"
-		return nil
-	}
+    // https://go.dev/issue/51748: allow "-buildvcs=auto",
+    // in addition to the usual "true" and "false".
+    if s == "" || s == "auto" {
+        *f = "auto"
+        return nil
+    }
 
-	b, err := strconv.ParseBool(s)
-	if err != nil {
-		return errors.New("value is neither 'auto' nor a valid bool")
-	}
-	*f = (buildvcsFlag)(strconv.FormatBool(b)) // convert to canonical "true" or "false"
-	return nil
+    b, err := strconv.ParseBool(s)
+    if err != nil {
+        return errors.New("value is neither 'auto' nor a valid bool")
+    }
+    *f = (buildvcsFlag)(strconv.FormatBool(b)) // convert to canonical "true" or "false"
+    return nil
 }
 
 func (f *buildvcsFlag) String() string { return string(*f) }
@@ -407,148 +412,152 @@ func (f *buildvcsFlag) String() string { return string(*f) }
 // and ext (without the dot). If the file has no
 // extension, ext will be empty.
 func fileExtSplit(file string) (name, ext string) {
-	dotExt := filepath.Ext(file)
-	name = file[:len(file)-len(dotExt)]
-	if dotExt != "" {
-		ext = dotExt[1:]
-	}
-	return
+    dotExt := filepath.Ext(file)
+    name = file[:len(file)-len(dotExt)]
+    if dotExt != "" {
+        ext = dotExt[1:]
+    }
+    return
 }
 
 func pkgsMain(pkgs []*load.Package) (res []*load.Package) {
-	for _, p := range pkgs {
-		if p.Name == "main" {
-			res = append(res, p)
-		}
-	}
-	return res
+    for _, p := range pkgs {
+        if p.Name == "main" {
+            res = append(res, p)
+        }
+    }
+    return res
 }
 
 func pkgsNotMain(pkgs []*load.Package) (res []*load.Package) {
-	for _, p := range pkgs {
-		if p.Name != "main" {
-			res = append(res, p)
-		}
-	}
-	return res
+    for _, p := range pkgs {
+        if p.Name != "main" {
+            res = append(res, p)
+        }
+    }
+    return res
 }
 
 func oneMainPkg(pkgs []*load.Package) []*load.Package {
-	if len(pkgs) != 1 || pkgs[0].Name != "main" {
-		base.Fatalf("-buildmode=%s requires exactly one main package", cfg.BuildBuildmode)
-	}
-	return pkgs
+    // main包检查 main包只能存在一个，并且包名必须是main
+    if len(pkgs) != 1 || pkgs[0].Name != "main" {
+        base.Fatalf("-buildmode=%s requires exactly one main package", cfg.BuildBuildmode)
+    }
+    return pkgs
 }
 
 var pkgsFilter = func(pkgs []*load.Package) []*load.Package { return pkgs }
 
 var RuntimeVersion = runtime.Version()
 
+// 运行go build
 func runBuild(ctx context.Context, cmd *base.Command, args []string) {
-	modload.InitWorkfile()
-	BuildInit()
-	b := NewBuilder("")
-	defer func() {
-		if err := b.Close(); err != nil {
-			base.Fatalf("go: %v", err)
-		}
-	}()
+    modload.InitWorkfile()
+    BuildInit()
+    b := NewBuilder("")
+    defer func() {
+        if err := b.Close(); err != nil {
+            base.Fatalf("go: %v", err)
+        }
+    }()
 
-	pkgs := load.PackagesAndErrors(ctx, load.PackageOpts{AutoVCS: true}, args)
-	load.CheckPackageErrors(pkgs)
+    // 加载并检查
+    pkgs := load.PackagesAndErrors(ctx, load.PackageOpts{AutoVCS: true}, args)
+    load.CheckPackageErrors(pkgs)
 
-	explicitO := len(cfg.BuildO) > 0
+    explicitO := len(cfg.BuildO) > 0
 
-	if len(pkgs) == 1 && pkgs[0].Name == "main" && cfg.BuildO == "" {
-		cfg.BuildO = pkgs[0].DefaultExecName()
-		cfg.BuildO += cfg.ExeSuffix
-	}
+    if len(pkgs) == 1 && pkgs[0].Name == "main" && cfg.BuildO == "" {
+        cfg.BuildO = pkgs[0].DefaultExecName()
+        cfg.BuildO += cfg.ExeSuffix
+    }
 
-	// sanity check some often mis-used options
-	switch cfg.BuildContext.Compiler {
-	case "gccgo":
-		if load.BuildGcflags.Present() {
-			fmt.Println("go build: when using gccgo toolchain, please pass compiler flags using -gccgoflags, not -gcflags")
-		}
-		if load.BuildLdflags.Present() {
-			fmt.Println("go build: when using gccgo toolchain, please pass linker flags using -gccgoflags, not -ldflags")
-		}
-	case "gc":
-		if load.BuildGccgoflags.Present() {
-			fmt.Println("go build: when using gc toolchain, please pass compile flags using -gcflags, and linker flags using -ldflags")
-		}
-	}
+    // sanity check some often mis-used options
+    switch cfg.BuildContext.Compiler {
+    case "gccgo":
+        if load.BuildGcflags.Present() {
+            fmt.Println("go build: when using gccgo toolchain, please pass compiler flags using -gccgoflags, not -gcflags")
+        }
+        if load.BuildLdflags.Present() {
+            fmt.Println("go build: when using gccgo toolchain, please pass linker flags using -gccgoflags, not -ldflags")
+        }
+    case "gc":
+        if load.BuildGccgoflags.Present() {
+            fmt.Println("go build: when using gc toolchain, please pass compile flags using -gcflags, and linker flags using -ldflags")
+        }
+    }
 
-	depMode := ModeBuild
+    depMode := ModeBuild
 
-	pkgs = omitTestOnly(pkgsFilter(pkgs))
+    // 忽略测试包
+    pkgs = omitTestOnly(pkgsFilter(pkgs))
 
-	// Special case -o /dev/null by not writing at all.
-	if base.IsNull(cfg.BuildO) {
-		cfg.BuildO = ""
-	}
+    // Special case -o /dev/null by not writing at all.
+    if base.IsNull(cfg.BuildO) {
+        cfg.BuildO = ""
+    }
 
-	if cfg.Experiment.CoverageRedesign && cfg.BuildCover {
-		load.PrepareForCoverageBuild(pkgs)
-	}
+    if cfg.Experiment.CoverageRedesign && cfg.BuildCover {
+        load.PrepareForCoverageBuild(pkgs)
+    }
 
-	if cfg.BuildO != "" {
-		// If the -o name exists and is a directory or
-		// ends with a slash or backslash, then
-		// write all main packages to that directory.
-		// Otherwise require only a single package be built.
-		if fi, err := os.Stat(cfg.BuildO); (err == nil && fi.IsDir()) ||
-			strings.HasSuffix(cfg.BuildO, "/") ||
-			strings.HasSuffix(cfg.BuildO, string(os.PathSeparator)) {
-			if !explicitO {
-				base.Fatalf("go: build output %q already exists and is a directory", cfg.BuildO)
-			}
-			a := &Action{Mode: "go build"}
-			for _, p := range pkgs {
-				if p.Name != "main" {
-					continue
-				}
+    if cfg.BuildO != "" {
+        // If the -o name exists and is a directory or
+        // ends with a slash or backslash, then
+        // write all main packages to that directory.
+        // Otherwise require only a single package be built.
+        if fi, err := os.Stat(cfg.BuildO); (err == nil && fi.IsDir()) ||
+            strings.HasSuffix(cfg.BuildO, "/") ||
+            strings.HasSuffix(cfg.BuildO, string(os.PathSeparator)) {
+            if !explicitO {
+                base.Fatalf("go: build output %q already exists and is a directory", cfg.BuildO)
+            }
+            a := &Action{Mode: "go build"}
+            for _, p := range pkgs {
+                if p.Name != "main" {
+                    continue
+                }
 
-				p.Target = filepath.Join(cfg.BuildO, p.DefaultExecName())
-				p.Target += cfg.ExeSuffix
-				p.Stale = true
-				p.StaleReason = "build -o flag in use"
-				a.Deps = append(a.Deps, b.AutoAction(ModeInstall, depMode, p))
-			}
-			if len(a.Deps) == 0 {
-				base.Fatalf("go: no main packages to build")
-			}
-			b.Do(ctx, a)
-			return
-		}
-		if len(pkgs) > 1 {
-			base.Fatalf("go: cannot write multiple packages to non-directory %s", cfg.BuildO)
-		} else if len(pkgs) == 0 {
-			base.Fatalf("no packages to build")
-		}
-		p := pkgs[0]
-		p.Target = cfg.BuildO
-		p.Stale = true // must build - not up to date
-		p.StaleReason = "build -o flag in use"
-		a := b.AutoAction(ModeInstall, depMode, p)
-		b.Do(ctx, a)
-		return
-	}
+                p.Target = filepath.Join(cfg.BuildO, p.DefaultExecName())
+                p.Target += cfg.ExeSuffix
+                p.Stale = true
+                p.StaleReason = "build -o flag in use"
+                a.Deps = append(a.Deps, b.AutoAction(ModeInstall, depMode, p))
+            }
+            if len(a.Deps) == 0 {
+                base.Fatalf("go: no main packages to build")
+            }
+            b.Do(ctx, a)
+            return
+        }
+        if len(pkgs) > 1 {
+            base.Fatalf("go: cannot write multiple packages to non-directory %s", cfg.BuildO)
+        } else if len(pkgs) == 0 {
+            base.Fatalf("no packages to build")
+        }
+        p := pkgs[0]
+        p.Target = cfg.BuildO
+        p.Stale = true // must build - not up to date
+        p.StaleReason = "build -o flag in use"
+        a := b.AutoAction(ModeInstall, depMode, p)
+        b.Do(ctx, a)
+        return
+    }
 
-	a := &Action{Mode: "go build"}
-	for _, p := range pkgs {
-		a.Deps = append(a.Deps, b.AutoAction(ModeBuild, depMode, p))
-	}
-	if cfg.BuildBuildmode == "shared" {
-		a = b.buildmodeShared(ModeBuild, depMode, args, pkgs, a)
-	}
-	b.Do(ctx, a)
+    a := &Action{Mode: "go build"}
+    for _, p := range pkgs {
+        a.Deps = append(a.Deps, b.AutoAction(ModeBuild, depMode, p))
+    }
+    if cfg.BuildBuildmode == "shared" {
+        a = b.buildmodeShared(ModeBuild, depMode, args, pkgs, a)
+    }
+    b.Do(ctx, a)
 }
 
 var CmdInstall = &base.Command{
-	UsageLine: "go install [build flags] [packages]",
-	Short:     "compile and install packages and dependencies",
-	Long: `
+    UsageLine: "go install [build flags] [packages]",
+    Short:     "compile and install packages and dependencies",
+    Long: `
 Install compiles and installs the packages named by the import paths.
 
 Executables are installed in the directory named by the GOBIN environment
@@ -628,212 +637,212 @@ See also: go build, go get, go clean.
 //
 // Name parts are joined with ','.
 func libname(args []string, pkgs []*load.Package) (string, error) {
-	var libname string
-	appendName := func(arg string) {
-		if libname == "" {
-			libname = arg
-		} else {
-			libname += "," + arg
-		}
-	}
-	var haveNonMeta bool
-	for _, arg := range args {
-		if search.IsMetaPackage(arg) {
-			appendName(arg)
-		} else {
-			haveNonMeta = true
-		}
-	}
-	if len(libname) == 0 { // non-meta packages only. use import paths
-		if len(args) == 1 && strings.HasSuffix(args[0], "/...") {
-			// Special case of "foo/..." as mentioned above.
-			arg := strings.TrimSuffix(args[0], "/...")
-			if build.IsLocalImport(arg) {
-				cwd, _ := os.Getwd()
-				bp, _ := cfg.BuildContext.ImportDir(filepath.Join(cwd, arg), build.FindOnly)
-				if bp.ImportPath != "" && bp.ImportPath != "." {
-					arg = bp.ImportPath
-				}
-			}
-			appendName(strings.ReplaceAll(arg, "/", "-"))
-		} else {
-			for _, pkg := range pkgs {
-				appendName(strings.ReplaceAll(pkg.ImportPath, "/", "-"))
-			}
-		}
-	} else if haveNonMeta { // have both meta package and a non-meta one
-		return "", errors.New("mixing of meta and non-meta packages is not allowed")
-	}
-	// TODO(mwhudson): Needs to change for platforms that use different naming
-	// conventions...
-	return "lib" + libname + ".so", nil
+    var libname string
+    appendName := func(arg string) {
+        if libname == "" {
+            libname = arg
+        } else {
+            libname += "," + arg
+        }
+    }
+    var haveNonMeta bool
+    for _, arg := range args {
+        if search.IsMetaPackage(arg) {
+            appendName(arg)
+        } else {
+            haveNonMeta = true
+        }
+    }
+    if len(libname) == 0 { // non-meta packages only. use import paths
+        if len(args) == 1 && strings.HasSuffix(args[0], "/...") {
+            // Special case of "foo/..." as mentioned above.
+            arg := strings.TrimSuffix(args[0], "/...")
+            if build.IsLocalImport(arg) {
+                cwd, _ := os.Getwd()
+                bp, _ := cfg.BuildContext.ImportDir(filepath.Join(cwd, arg), build.FindOnly)
+                if bp.ImportPath != "" && bp.ImportPath != "." {
+                    arg = bp.ImportPath
+                }
+            }
+            appendName(strings.ReplaceAll(arg, "/", "-"))
+        } else {
+            for _, pkg := range pkgs {
+                appendName(strings.ReplaceAll(pkg.ImportPath, "/", "-"))
+            }
+        }
+    } else if haveNonMeta { // have both meta package and a non-meta one
+        return "", errors.New("mixing of meta and non-meta packages is not allowed")
+    }
+    // TODO(mwhudson): Needs to change for platforms that use different naming
+    // conventions...
+    return "lib" + libname + ".so", nil
 }
 
 func runInstall(ctx context.Context, cmd *base.Command, args []string) {
-	for _, arg := range args {
-		if strings.Contains(arg, "@") && !build.IsLocalImport(arg) && !filepath.IsAbs(arg) {
-			installOutsideModule(ctx, args)
-			return
-		}
-	}
+    for _, arg := range args {
+        if strings.Contains(arg, "@") && !build.IsLocalImport(arg) && !filepath.IsAbs(arg) {
+            installOutsideModule(ctx, args)
+            return
+        }
+    }
 
-	modload.InitWorkfile()
-	BuildInit()
-	pkgs := load.PackagesAndErrors(ctx, load.PackageOpts{AutoVCS: true}, args)
-	if cfg.ModulesEnabled && !modload.HasModRoot() {
-		haveErrors := false
-		allMissingErrors := true
-		for _, pkg := range pkgs {
-			if pkg.Error == nil {
-				continue
-			}
-			haveErrors = true
-			if missingErr := (*modload.ImportMissingError)(nil); !errors.As(pkg.Error, &missingErr) {
-				allMissingErrors = false
-				break
-			}
-		}
-		if haveErrors && allMissingErrors {
-			latestArgs := make([]string, len(args))
-			for i := range args {
-				latestArgs[i] = args[i] + "@latest"
-			}
-			hint := strings.Join(latestArgs, " ")
-			base.Fatalf("go: 'go install' requires a version when current directory is not in a module\n\tTry 'go install %s' to install the latest version", hint)
-		}
-	}
-	load.CheckPackageErrors(pkgs)
+    modload.InitWorkfile()
+    BuildInit()
+    pkgs := load.PackagesAndErrors(ctx, load.PackageOpts{AutoVCS: true}, args)
+    if cfg.ModulesEnabled && !modload.HasModRoot() {
+        haveErrors := false
+        allMissingErrors := true
+        for _, pkg := range pkgs {
+            if pkg.Error == nil {
+                continue
+            }
+            haveErrors = true
+            if missingErr := (*modload.ImportMissingError)(nil); !errors.As(pkg.Error, &missingErr) {
+                allMissingErrors = false
+                break
+            }
+        }
+        if haveErrors && allMissingErrors {
+            latestArgs := make([]string, len(args))
+            for i := range args {
+                latestArgs[i] = args[i] + "@latest"
+            }
+            hint := strings.Join(latestArgs, " ")
+            base.Fatalf("go: 'go install' requires a version when current directory is not in a module\n\tTry 'go install %s' to install the latest version", hint)
+        }
+    }
+    load.CheckPackageErrors(pkgs)
 
-	if cfg.Experiment.CoverageRedesign && cfg.BuildCover {
-		load.PrepareForCoverageBuild(pkgs)
-	}
+    if cfg.Experiment.CoverageRedesign && cfg.BuildCover {
+        load.PrepareForCoverageBuild(pkgs)
+    }
 
-	InstallPackages(ctx, args, pkgs)
+    InstallPackages(ctx, args, pkgs)
 }
 
 // omitTestOnly returns pkgs with test-only packages removed.
 func omitTestOnly(pkgs []*load.Package) []*load.Package {
-	var list []*load.Package
-	for _, p := range pkgs {
-		if len(p.GoFiles)+len(p.CgoFiles) == 0 && !p.Internal.CmdlinePkgLiteral {
-			// Package has no source files,
-			// perhaps due to build tags or perhaps due to only having *_test.go files.
-			// Also, it is only being processed as the result of a wildcard match
-			// like ./..., not because it was listed as a literal path on the command line.
-			// Ignore it.
-			continue
-		}
-		list = append(list, p)
-	}
-	return list
+    var list []*load.Package
+    for _, p := range pkgs {
+        if len(p.GoFiles)+len(p.CgoFiles) == 0 && !p.Internal.CmdlinePkgLiteral {
+            // Package has no source files,
+            // perhaps due to build tags or perhaps due to only having *_test.go files.
+            // Also, it is only being processed as the result of a wildcard match
+            // like ./..., not because it was listed as a literal path on the command line.
+            // Ignore it.
+            continue
+        }
+        list = append(list, p)
+    }
+    return list
 }
 
 func InstallPackages(ctx context.Context, patterns []string, pkgs []*load.Package) {
-	ctx, span := trace.StartSpan(ctx, "InstallPackages "+strings.Join(patterns, " "))
-	defer span.Done()
+    ctx, span := trace.StartSpan(ctx, "InstallPackages "+strings.Join(patterns, " "))
+    defer span.Done()
 
-	if cfg.GOBIN != "" && !filepath.IsAbs(cfg.GOBIN) {
-		base.Fatalf("cannot install, GOBIN must be an absolute path")
-	}
+    if cfg.GOBIN != "" && !filepath.IsAbs(cfg.GOBIN) {
+        base.Fatalf("cannot install, GOBIN must be an absolute path")
+    }
 
-	pkgs = omitTestOnly(pkgsFilter(pkgs))
-	for _, p := range pkgs {
-		if p.Target == "" {
-			switch {
-			case p.Name != "main" && p.Internal.Local && p.ConflictDir == "":
-				// Non-executables outside GOPATH need not have a target:
-				// we can use the cache to hold the built package archive for use in future builds.
-				// The ones inside GOPATH should have a target (in GOPATH/pkg)
-				// or else something is wrong and worth reporting (like a ConflictDir).
-			case p.Name != "main" && p.Module != nil:
-				// Non-executables have no target (except the cache) when building with modules.
-			case p.Name != "main" && p.Standard && p.Internal.Build.PkgObj == "":
-				// Most packages in std do not need an installed .a, because they can be
-				// rebuilt and used directly from the build cache.
-				// A few targets (notably those using cgo) still do need to be installed
-				// in case the user's environment lacks a C compiler.
-			case p.Internal.GobinSubdir:
-				base.Errorf("go: cannot install cross-compiled binaries when GOBIN is set")
-			case p.Internal.CmdlineFiles:
-				base.Errorf("go: no install location for .go files listed on command line (GOBIN not set)")
-			case p.ConflictDir != "":
-				base.Errorf("go: no install location for %s: hidden by %s", p.Dir, p.ConflictDir)
-			default:
-				base.Errorf("go: no install location for directory %s outside GOPATH\n"+
-					"\tFor more details see: 'go help gopath'", p.Dir)
-			}
-		}
-	}
-	base.ExitIfErrors()
+    pkgs = omitTestOnly(pkgsFilter(pkgs))
+    for _, p := range pkgs {
+        if p.Target == "" {
+            switch {
+            case p.Name != "main" && p.Internal.Local && p.ConflictDir == "":
+                // Non-executables outside GOPATH need not have a target:
+                // we can use the cache to hold the built package archive for use in future builds.
+                // The ones inside GOPATH should have a target (in GOPATH/pkg)
+                // or else something is wrong and worth reporting (like a ConflictDir).
+            case p.Name != "main" && p.Module != nil:
+                // Non-executables have no target (except the cache) when building with modules.
+            case p.Name != "main" && p.Standard && p.Internal.Build.PkgObj == "":
+                // Most packages in std do not need an installed .a, because they can be
+                // rebuilt and used directly from the build cache.
+                // A few targets (notably those using cgo) still do need to be installed
+                // in case the user's environment lacks a C compiler.
+            case p.Internal.GobinSubdir:
+                base.Errorf("go: cannot install cross-compiled binaries when GOBIN is set")
+            case p.Internal.CmdlineFiles:
+                base.Errorf("go: no install location for .go files listed on command line (GOBIN not set)")
+            case p.ConflictDir != "":
+                base.Errorf("go: no install location for %s: hidden by %s", p.Dir, p.ConflictDir)
+            default:
+                base.Errorf("go: no install location for directory %s outside GOPATH\n"+
+                    "\tFor more details see: 'go help gopath'", p.Dir)
+            }
+        }
+    }
+    base.ExitIfErrors()
 
-	b := NewBuilder("")
-	defer func() {
-		if err := b.Close(); err != nil {
-			base.Fatalf("go: %v", err)
-		}
-	}()
+    b := NewBuilder("")
+    defer func() {
+        if err := b.Close(); err != nil {
+            base.Fatalf("go: %v", err)
+        }
+    }()
 
-	depMode := ModeBuild
-	a := &Action{Mode: "go install"}
-	var tools []*Action
-	for _, p := range pkgs {
-		// If p is a tool, delay the installation until the end of the build.
-		// This avoids installing assemblers/compilers that are being executed
-		// by other steps in the build.
-		a1 := b.AutoAction(ModeInstall, depMode, p)
-		if load.InstallTargetDir(p) == load.ToTool {
-			a.Deps = append(a.Deps, a1.Deps...)
-			a1.Deps = append(a1.Deps, a)
-			tools = append(tools, a1)
-			continue
-		}
-		a.Deps = append(a.Deps, a1)
-	}
-	if len(tools) > 0 {
-		a = &Action{
-			Mode: "go install (tools)",
-			Deps: tools,
-		}
-	}
+    depMode := ModeBuild
+    a := &Action{Mode: "go install"}
+    var tools []*Action
+    for _, p := range pkgs {
+        // If p is a tool, delay the installation until the end of the build.
+        // This avoids installing assemblers/compilers that are being executed
+        // by other steps in the build.
+        a1 := b.AutoAction(ModeInstall, depMode, p)
+        if load.InstallTargetDir(p) == load.ToTool {
+            a.Deps = append(a.Deps, a1.Deps...)
+            a1.Deps = append(a1.Deps, a)
+            tools = append(tools, a1)
+            continue
+        }
+        a.Deps = append(a.Deps, a1)
+    }
+    if len(tools) > 0 {
+        a = &Action{
+            Mode: "go install (tools)",
+            Deps: tools,
+        }
+    }
 
-	if cfg.BuildBuildmode == "shared" {
-		// Note: If buildmode=shared then only non-main packages
-		// are present in the pkgs list, so all the special case code about
-		// tools above did not apply, and a is just a simple Action
-		// with a list of Deps, one per package named in pkgs,
-		// the same as in runBuild.
-		a = b.buildmodeShared(ModeInstall, ModeInstall, patterns, pkgs, a)
-	}
+    if cfg.BuildBuildmode == "shared" {
+        // Note: If buildmode=shared then only non-main packages
+        // are present in the pkgs list, so all the special case code about
+        // tools above did not apply, and a is just a simple Action
+        // with a list of Deps, one per package named in pkgs,
+        // the same as in runBuild.
+        a = b.buildmodeShared(ModeInstall, ModeInstall, patterns, pkgs, a)
+    }
 
-	b.Do(ctx, a)
-	base.ExitIfErrors()
+    b.Do(ctx, a)
+    base.ExitIfErrors()
 
-	// Success. If this command is 'go install' with no arguments
-	// and the current directory (the implicit argument) is a command,
-	// remove any leftover command binary from a previous 'go build'.
-	// The binary is installed; it's not needed here anymore.
-	// And worse it might be a stale copy, which you don't want to find
-	// instead of the installed one if $PATH contains dot.
-	// One way to view this behavior is that it is as if 'go install' first
-	// runs 'go build' and the moves the generated file to the install dir.
-	// See issue 9645.
-	if len(patterns) == 0 && len(pkgs) == 1 && pkgs[0].Name == "main" {
-		// Compute file 'go build' would have created.
-		// If it exists and is an executable file, remove it.
-		targ := pkgs[0].DefaultExecName()
-		targ += cfg.ExeSuffix
-		if filepath.Join(pkgs[0].Dir, targ) != pkgs[0].Target { // maybe $GOBIN is the current directory
-			fi, err := os.Stat(targ)
-			if err == nil {
-				m := fi.Mode()
-				if m.IsRegular() {
-					if m&0111 != 0 || cfg.Goos == "windows" { // windows never sets executable bit
-						os.Remove(targ)
-					}
-				}
-			}
-		}
-	}
+    // Success. If this command is 'go install' with no arguments
+    // and the current directory (the implicit argument) is a command,
+    // remove any leftover command binary from a previous 'go build'.
+    // The binary is installed; it's not needed here anymore.
+    // And worse it might be a stale copy, which you don't want to find
+    // instead of the installed one if $PATH contains dot.
+    // One way to view this behavior is that it is as if 'go install' first
+    // runs 'go build' and the moves the generated file to the install dir.
+    // See issue 9645.
+    if len(patterns) == 0 && len(pkgs) == 1 && pkgs[0].Name == "main" {
+        // Compute file 'go build' would have created.
+        // If it exists and is an executable file, remove it.
+        targ := pkgs[0].DefaultExecName()
+        targ += cfg.ExeSuffix
+        if filepath.Join(pkgs[0].Dir, targ) != pkgs[0].Target { // maybe $GOBIN is the current directory
+            fi, err := os.Stat(targ)
+            if err == nil {
+                m := fi.Mode()
+                if m.IsRegular() {
+                    if m&0111 != 0 || cfg.Goos == "windows" { // windows never sets executable bit
+                        os.Remove(targ)
+                    }
+                }
+            }
+        }
+    }
 }
 
 // installOutsideModule implements 'go install pkg@version'. It builds and
@@ -842,31 +851,31 @@ func InstallPackages(ctx context.Context, patterns []string, pkgs []*load.Packag
 //
 // See golang.org/issue/40276 for details and rationale.
 func installOutsideModule(ctx context.Context, args []string) {
-	modload.ForceUseModules = true
-	modload.RootMode = modload.NoRoot
-	modload.AllowMissingModuleImports()
-	modload.Init()
-	BuildInit()
+    modload.ForceUseModules = true
+    modload.RootMode = modload.NoRoot
+    modload.AllowMissingModuleImports()
+    modload.Init()
+    BuildInit()
 
-	// Load packages. Ignore non-main packages.
-	// Print a warning if an argument contains "..." and matches no main packages.
-	// PackagesAndErrors already prints warnings for patterns that don't match any
-	// packages, so be careful not to double print.
-	// TODO(golang.org/issue/40276): don't report errors loading non-main packages
-	// matched by a pattern.
-	pkgOpts := load.PackageOpts{MainOnly: true}
-	pkgs, err := load.PackagesAndErrorsOutsideModule(ctx, pkgOpts, args)
-	if err != nil {
-		base.Fatalf("go: %v", err)
-	}
-	load.CheckPackageErrors(pkgs)
-	patterns := make([]string, len(args))
-	for i, arg := range args {
-		patterns[i] = arg[:strings.Index(arg, "@")]
-	}
+    // Load packages. Ignore non-main packages.
+    // Print a warning if an argument contains "..." and matches no main packages.
+    // PackagesAndErrors already prints warnings for patterns that don't match any
+    // packages, so be careful not to double print.
+    // TODO(golang.org/issue/40276): don't report errors loading non-main packages
+    // matched by a pattern.
+    pkgOpts := load.PackageOpts{MainOnly: true}
+    pkgs, err := load.PackagesAndErrorsOutsideModule(ctx, pkgOpts, args)
+    if err != nil {
+        base.Fatalf("go: %v", err)
+    }
+    load.CheckPackageErrors(pkgs)
+    patterns := make([]string, len(args))
+    for i, arg := range args {
+        patterns[i] = arg[:strings.Index(arg, "@")]
+    }
 
-	// Build and install the packages.
-	InstallPackages(ctx, patterns, pkgs)
+    // Build and install the packages.
+    InstallPackages(ctx, patterns, pkgs)
 }
 
 // ExecCmd is the command to use to run user binaries.
@@ -880,18 +889,18 @@ var ExecCmd []string
 // FindExecCmd derives the value of ExecCmd to use.
 // It returns that value and leaves ExecCmd set for direct use.
 func FindExecCmd() []string {
-	if ExecCmd != nil {
-		return ExecCmd
-	}
-	ExecCmd = []string{} // avoid work the second time
-	if cfg.Goos == runtime.GOOS && cfg.Goarch == runtime.GOARCH {
-		return ExecCmd
-	}
-	path, err := exec.LookPath(fmt.Sprintf("go_%s_%s_exec", cfg.Goos, cfg.Goarch))
-	if err == nil {
-		ExecCmd = []string{path}
-	}
-	return ExecCmd
+    if ExecCmd != nil {
+        return ExecCmd
+    }
+    ExecCmd = []string{} // avoid work the second time
+    if cfg.Goos == runtime.GOOS && cfg.Goarch == runtime.GOARCH {
+        return ExecCmd
+    }
+    path, err := exec.LookPath(fmt.Sprintf("go_%s_%s_exec", cfg.Goos, cfg.Goarch))
+    if err == nil {
+        ExecCmd = []string{path}
+    }
+    return ExecCmd
 }
 
 // A coverFlag is a flag.Value that also implies -cover.
@@ -900,25 +909,25 @@ type coverFlag struct{ V flag.Value }
 func (f coverFlag) String() string { return f.V.String() }
 
 func (f coverFlag) Set(value string) error {
-	if err := f.V.Set(value); err != nil {
-		return err
-	}
-	cfg.BuildCover = true
-	return nil
+    if err := f.V.Set(value); err != nil {
+        return err
+    }
+    cfg.BuildCover = true
+    return nil
 }
 
 type coverModeFlag string
 
 func (f *coverModeFlag) String() string { return string(*f) }
 func (f *coverModeFlag) Set(value string) error {
-	switch value {
-	case "", "set", "count", "atomic":
-		*f = coverModeFlag(value)
-		cfg.BuildCoverMode = value
-		return nil
-	default:
-		return errors.New(`valid modes are "set", "count", or "atomic"`)
-	}
+    switch value {
+    case "", "set", "count", "atomic":
+        *f = coverModeFlag(value)
+        cfg.BuildCoverMode = value
+        return nil
+    default:
+        return errors.New(`valid modes are "set", "count", or "atomic"`)
+    }
 }
 
 // A commaListFlag is a flag.Value representing a comma-separated list.
@@ -927,12 +936,12 @@ type commaListFlag struct{ Vals *[]string }
 func (f commaListFlag) String() string { return strings.Join(*f.Vals, ",") }
 
 func (f commaListFlag) Set(value string) error {
-	if value == "" {
-		*f.Vals = nil
-	} else {
-		*f.Vals = strings.Split(value, ",")
-	}
-	return nil
+    if value == "" {
+        *f.Vals = nil
+    } else {
+        *f.Vals = strings.Split(value, ",")
+    }
+    return nil
 }
 
 // A stringFlag is a flag.Value representing a single string.
@@ -940,6 +949,6 @@ type stringFlag struct{ val *string }
 
 func (f stringFlag) String() string { return *f.val }
 func (f stringFlag) Set(value string) error {
-	*f.val = value
-	return nil
+    *f.val = value
+    return nil
 }

@@ -4,6 +4,7 @@
 
 #include "textflag.h"
 
+// 真正的程序入口
 TEXT _rt0_amd64_linux(SB),NOSPLIT,$-8
 	JMP	_rt0_amd64(SB)
 

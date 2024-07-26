@@ -12,9 +12,10 @@
 // internal linking. This is the entry point for the program from the
 // kernel for an ordinary -buildmode=exe program. The stack holds the
 // number of arguments and the C-style argv.
+// 代码启动，有点类似C风格的函数
 TEXT _rt0_amd64(SB),NOSPLIT,$-8
-	MOVQ	0(SP), DI	// argc
-	LEAQ	8(SP), SI	// argv
+	MOVQ	0(SP), DI	// argc 参数数量
+	LEAQ	8(SP), SI	// argv 参数具体的值
 	JMP	runtime·rt0_go(SB)
 
 // main is common startup code for most amd64 systems when using
@@ -158,6 +159,7 @@ GLOBL bad_cpu_msg<>(SB), RODATA, $84
 
 TEXT runtime·rt0_go(SB),NOSPLIT|TOPFRAME,$0
 	// copy arguments forward on an even stack
+	// 将参数向前复制在一个偶数栈上
 	MOVQ	DI, AX		// argc
 	MOVQ	SI, BX		// argv
 	SUBQ	$(5*8), SP		// 3args 2auto
@@ -167,6 +169,7 @@ TEXT runtime·rt0_go(SB),NOSPLIT|TOPFRAME,$0
 
 	// create istack out of the given (operating system) stack.
 	// _cgo_init may update stackguard.
+	// 初始化g0
 	MOVQ	$runtime·g0(SB), DI
 	LEAQ	(-64*1024+104)(SP), BX
 	MOVQ	BX, g_stackguard0(DI)
@@ -175,6 +178,7 @@ TEXT runtime·rt0_go(SB),NOSPLIT|TOPFRAME,$0
 	MOVQ	SP, (g_stack+stack_hi)(DI)
 
 	// find out information about the processor we're on
+	// 确定CPU处理信息
 	MOVL	$0, AX
 	CPUID
 	CMPL	AX, $0
@@ -244,6 +248,7 @@ needtls:
 #endif
 #ifdef GOOS_darwin
 	// skip TLS setup on Darwin
+	// 操作系统和标准库已经处理了TLS初始化，Go不需要重复处理，简化代码
 	JMP ok
 #endif
 #ifdef GOOS_openbsd
@@ -256,16 +261,18 @@ needtls:
 #endif
 
 	LEAQ	runtime·m0+m_tls(SB), DI
-	CALL	runtime·settls(SB)
+	CALL	runtime·settls(SB) // 将TLS地址设置到DI
 
 	// store through it, to make sure it works
+	// 存储起来
 	get_tls(BX)
 	MOVQ	$0x123, g(BX)
 	MOVQ	runtime·m0+m_tls(SB), AX
-	CMPQ	AX, $0x123
-	JEQ 2(PC)
+	CMPQ	AX, $0x123 // 判断TLS是否设置成功
+	JEQ 2(PC)          // 如果相等向后跳转两条指令
 	CALL	runtime·abort(SB)
 ok:
+    // 程序启动，当前在主线程，当前的栈和资源都保存在g0，线程保存在m0中
 	// set the per-goroutine and per-mach "registers"
 	get_tls(BX)
 	LEAQ	runtime·g0(SB), CX
@@ -337,23 +344,28 @@ ok:
 	CMPQ	BX, CX
 	JNE	bad_cpu
 #endif
-
+    // 运行时类型检查
 	CALL	runtime·check(SB)
 
+    // 参数获取处理
 	MOVL	24(SP), AX		// copy argc
 	MOVL	AX, 0(SP)
 	MOVQ	32(SP), AX		// copy argv
 	MOVQ	AX, 8(SP)
 	CALL	runtime·args(SB)
+	// 系统初始化
 	CALL	runtime·osinit(SB)
+	// 调度器初始化
 	CALL	runtime·schedinit(SB)
 
 	// create a new goroutine to start program
+	// runtime.main函数值传给newproc函数，创建一个新的goroutine来启动程序
 	MOVQ	$runtime·mainPC(SB), AX		// entry
 	PUSHQ	AX
 	CALL	runtime·newproc(SB)
 	POPQ	AX
 
+    // 启动这个M，mstart应该永不返回
 	// start this M
 	CALL	runtime·mstart(SB)
 
@@ -379,7 +391,12 @@ bad_cpu: // show that the program requires a certain microarchitecture level.
 // mainPC is a function value for runtime.main, to be passed to newproc.
 // The reference to runtime.main is made via ABIInternal, since the
 // actual function (not the ABI0 wrapper) is needed by newproc.
+// mainPC是一个表示runtime.main函数值的变量，它将被传递给newproc函数。
+// runtime.main的引用通过ABIInternal进行，因为newproc需要的是实际的函数，而不是ABI0包装器。
+// DATA 定义了runtime.mainPC符号，起始位置为0，大小为8字节
+// runtime·main<ABIInternal>(SB)这个值是runtime.main函数的地址，使用ABIInternal调用约定
 DATA	runtime·mainPC+0(SB)/8,$runtime·main<ABIInternal>(SB)
+// 定义全局符号runtime·mainPC，这个全局符号位于只读数据段，大小为8个字节
 GLOBL	runtime·mainPC(SB),RODATA,$8
 
 TEXT runtime·breakpoint(SB),NOSPLIT,$0-0

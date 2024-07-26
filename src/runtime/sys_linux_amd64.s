@@ -640,11 +640,15 @@ TEXT runtime·settls(SB),NOSPLIT,$32
 #endif
 	MOVQ	DI, SI
 	MOVQ	$0x1002, DI	// ARCH_SET_FS
+	// SYS_arch_prctl 系统调用用来在x86_64上设置和获取架构相关特性
+	// 它通过设置FS和GS寄存器来支持线程局部存储
+	// FS寄存器：通常用于指向线程局部存储区的指针
+	// GS寄存器：在windows中和FS差不多，在linux中主要用于存储指向进程控制块或其他内核数据的指针
 	MOVQ	$SYS_arch_prctl, AX
 	SYSCALL
-	CMPQ	AX, $0xfffffffffffff001
+	CMPQ	AX, $0xfffffffffffff001  // 验证是否成功
 	JLS	2(PC)
-	MOVL	$0xf1, 0xf1  // crash
+	MOVL	$0xf1, 0xf1  // crash 崩溃
 	RET
 
 TEXT runtime·osyield(SB),NOSPLIT,$0
