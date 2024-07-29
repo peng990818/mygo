@@ -188,6 +188,7 @@ var urandom_dev = []byte("/dev/urandom\x00")
 
 //go:nosplit
 func getRandomData(r []byte) {
+    // 通过读取 /dev/urandom\x00 的内容来获取随机值
     fd := open(&urandom_dev[0], 0 /* O_RDONLY */, 0)
     n := read(fd, unsafe.Pointer(&r[0]), int32(len(r)))
     closefd(fd)

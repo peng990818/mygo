@@ -388,6 +388,7 @@ func osinit() {
 var urandom_dev = []byte("/dev/urandom\x00")
 
 func getRandomData(r []byte) {
+    // 在 Linux 上，会根据程序引导一章中提到的辅助向量提供的随机数据来初始化 hashkey：
     if startupRandomData != nil {
         n := copy(r, startupRandomData)
         extendRandom(r, n)

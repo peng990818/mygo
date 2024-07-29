@@ -481,38 +481,45 @@ TEXT runtime·systemstack_switch(SB), NOSPLIT, $0-0
 
 // func systemstack(fn func())
 TEXT runtime·systemstack(SB), NOSPLIT, $0-8
-	MOVQ	fn+0(FP), DI	// DI = fn
+	MOVQ	fn+0(FP), DI	// DI = fn 获取要执行的函数并存储到DI寄存器
 	get_tls(CX)
-	MOVQ	g(CX), AX	// AX = g
-	MOVQ	g_m(AX), BX	// BX = m
+	MOVQ	g(CX), AX	// AX = g 获取g
+	MOVQ	g_m(AX), BX	// BX = m 获取m，系统线程
 
-	CMPQ	AX, m_gsignal(BX)
+	CMPQ	AX, m_gsignal(BX) // 检查当前goroutine是否在gsignal堆栈上，如果是，就跳转到noswitch直接调用函数
 	JEQ	noswitch
 
+    // 检查当前goroutine是否在g0堆栈上。如果是，则跳转到noswitch直接调用函数。
 	MOVQ	m_g0(BX), DX	// DX = g0
 	CMPQ	AX, DX
 	JEQ	noswitch
 
+    // 检查当前goroutine是否是当前的curg。如果不是，则跳转bad，表示一个错误状态。
 	CMPQ	AX, m_curg(BX)
 	JNE	bad
 
 	// switch stacks
 	// save our state in g->sched. Pretend to
 	// be systemstack_switch if the G stack is scanned.
+	// 切换堆栈
+	// 保存当前堆栈状态
 	CALL	gosave_systemstack_switch<>(SB)
 
 	// switch to g0
+	// 切换到g0堆栈，更新相关寄存器和堆栈指针（SP）
 	MOVQ	DX, g(CX)
 	MOVQ	DX, R14 // set the g register
 	MOVQ	(g_sched+gobuf_sp)(DX), BX
 	MOVQ	BX, SP
 
 	// call target function
+	// 调用目标函数
 	MOVQ	DI, DX
 	MOVQ	0(DI), DI
 	CALL	DI
 
 	// switch back to g
+	// 切换回原来的堆栈
 	get_tls(CX)
 	MOVQ	g(CX), AX
 	MOVQ	g_m(AX), BX

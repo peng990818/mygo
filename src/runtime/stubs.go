@@ -5,17 +5,17 @@
 package runtime
 
 import (
-	"internal/abi"
-	"internal/goarch"
-	"runtime/internal/math"
-	"unsafe"
+    "internal/abi"
+    "internal/goarch"
+    "runtime/internal/math"
+    "unsafe"
 )
 
 // Should be a built-in for unsafe.Pointer?
 //
 //go:nosplit
 func add(p unsafe.Pointer, x uintptr) unsafe.Pointer {
-	return unsafe.Pointer(uintptr(p) + x)
+    return unsafe.Pointer(uintptr(p) + x)
 }
 
 // getg returns the pointer to the current g.
@@ -56,13 +56,18 @@ func mcall(fn func(*g))
 //	})
 //	... use x ...
 //
+// 函数原型在asm_amd64.s中
+// 主要的作用是在系统堆栈上运行指定的函数fn，这是必要的，因为某些操作需要更多的堆栈空间，普通的goroutine的堆栈可能太小。
+// 如果systemstack是从每个操作系统线程的堆栈（g0）或信号处理堆栈（gsignal）调用的，那么systemstack会直接调用fn并返回。
+// 如果systemstack是从普通goroutine的受限堆栈调用的，那么systemstack会切换到per-OS-thread堆栈，调用fn，再切换回来。
+// noescape是一个编译器指令，告诉go编译器，函数参数不会在函数外部持有。通常用于优化，告诉编译器可以安全地在栈上分配参数。
 //go:noescape
 func systemstack(fn func())
 
 //go:nosplit
 //go:nowritebarrierrec
 func badsystemstack() {
-	writeErrStr("fatal: systemstack called from unexpected goroutine")
+    writeErrStr("fatal: systemstack called from unexpected goroutine")
 }
 
 // memclrNoHeapPointers clears n bytes starting at ptr.
@@ -90,7 +95,7 @@ func memclrNoHeapPointers(ptr unsafe.Pointer, n uintptr)
 
 //go:linkname reflect_memclrNoHeapPointers reflect.memclrNoHeapPointers
 func reflect_memclrNoHeapPointers(ptr unsafe.Pointer, n uintptr) {
-	memclrNoHeapPointers(ptr, n)
+    memclrNoHeapPointers(ptr, n)
 }
 
 // memmove copies n bytes from "from" to "to".
@@ -114,7 +119,7 @@ func memmove(to, from unsafe.Pointer, n uintptr)
 
 //go:linkname reflect_memmove reflect.memmove
 func reflect_memmove(to, from unsafe.Pointer, n uintptr) {
-	memmove(to, from, n)
+    memmove(to, from, n)
 }
 
 // exported value for testing
@@ -122,75 +127,75 @@ const hashLoad = float32(loadFactorNum) / float32(loadFactorDen)
 
 //go:nosplit
 func fastrand() uint32 {
-	mp := getg().m
-	// Implement wyrand: https://github.com/wangyi-fudan/wyhash
-	// Only the platform that math.Mul64 can be lowered
-	// by the compiler should be in this list.
-	if goarch.IsAmd64|goarch.IsArm64|goarch.IsPpc64|
-		goarch.IsPpc64le|goarch.IsMips64|goarch.IsMips64le|
-		goarch.IsS390x|goarch.IsRiscv64|goarch.IsLoong64 == 1 {
-		mp.fastrand += 0xa0761d6478bd642f
-		hi, lo := math.Mul64(mp.fastrand, mp.fastrand^0xe7037ed1a0b428db)
-		return uint32(hi ^ lo)
-	}
+    mp := getg().m
+    // Implement wyrand: https://github.com/wangyi-fudan/wyhash
+    // Only the platform that math.Mul64 can be lowered
+    // by the compiler should be in this list.
+    if goarch.IsAmd64|goarch.IsArm64|goarch.IsPpc64|
+        goarch.IsPpc64le|goarch.IsMips64|goarch.IsMips64le|
+        goarch.IsS390x|goarch.IsRiscv64|goarch.IsLoong64 == 1 {
+        mp.fastrand += 0xa0761d6478bd642f
+        hi, lo := math.Mul64(mp.fastrand, mp.fastrand^0xe7037ed1a0b428db)
+        return uint32(hi ^ lo)
+    }
 
-	// Implement xorshift64+: 2 32-bit xorshift sequences added together.
-	// Shift triplet [17,7,16] was calculated as indicated in Marsaglia's
-	// Xorshift paper: https://www.jstatsoft.org/article/view/v008i14/xorshift.pdf
-	// This generator passes the SmallCrush suite, part of TestU01 framework:
-	// http://simul.iro.umontreal.ca/testu01/tu01.html
-	t := (*[2]uint32)(unsafe.Pointer(&mp.fastrand))
-	s1, s0 := t[0], t[1]
-	s1 ^= s1 << 17
-	s1 = s1 ^ s0 ^ s1>>7 ^ s0>>16
-	t[0], t[1] = s0, s1
-	return s0 + s1
+    // Implement xorshift64+: 2 32-bit xorshift sequences added together.
+    // Shift triplet [17,7,16] was calculated as indicated in Marsaglia's
+    // Xorshift paper: https://www.jstatsoft.org/article/view/v008i14/xorshift.pdf
+    // This generator passes the SmallCrush suite, part of TestU01 framework:
+    // http://simul.iro.umontreal.ca/testu01/tu01.html
+    t := (*[2]uint32)(unsafe.Pointer(&mp.fastrand))
+    s1, s0 := t[0], t[1]
+    s1 ^= s1 << 17
+    s1 = s1 ^ s0 ^ s1>>7 ^ s0>>16
+    t[0], t[1] = s0, s1
+    return s0 + s1
 }
 
 //go:nosplit
 func fastrandn(n uint32) uint32 {
-	// This is similar to fastrand() % n, but faster.
-	// See https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
-	return uint32(uint64(fastrand()) * uint64(n) >> 32)
+    // This is similar to fastrand() % n, but faster.
+    // See https://lemire.me/blog/2016/06/27/a-fast-alternative-to-the-modulo-reduction/
+    return uint32(uint64(fastrand()) * uint64(n) >> 32)
 }
 
 func fastrand64() uint64 {
-	mp := getg().m
-	// Implement wyrand: https://github.com/wangyi-fudan/wyhash
-	// Only the platform that math.Mul64 can be lowered
-	// by the compiler should be in this list.
-	if goarch.IsAmd64|goarch.IsArm64|goarch.IsPpc64|
-		goarch.IsPpc64le|goarch.IsMips64|goarch.IsMips64le|
-		goarch.IsS390x|goarch.IsRiscv64 == 1 {
-		mp.fastrand += 0xa0761d6478bd642f
-		hi, lo := math.Mul64(mp.fastrand, mp.fastrand^0xe7037ed1a0b428db)
-		return hi ^ lo
-	}
+    mp := getg().m
+    // Implement wyrand: https://github.com/wangyi-fudan/wyhash
+    // Only the platform that math.Mul64 can be lowered
+    // by the compiler should be in this list.
+    if goarch.IsAmd64|goarch.IsArm64|goarch.IsPpc64|
+        goarch.IsPpc64le|goarch.IsMips64|goarch.IsMips64le|
+        goarch.IsS390x|goarch.IsRiscv64 == 1 {
+        mp.fastrand += 0xa0761d6478bd642f
+        hi, lo := math.Mul64(mp.fastrand, mp.fastrand^0xe7037ed1a0b428db)
+        return hi ^ lo
+    }
 
-	// Implement xorshift64+: 2 32-bit xorshift sequences added together.
-	// Xorshift paper: https://www.jstatsoft.org/article/view/v008i14/xorshift.pdf
-	// This generator passes the SmallCrush suite, part of TestU01 framework:
-	// http://simul.iro.umontreal.ca/testu01/tu01.html
-	t := (*[2]uint32)(unsafe.Pointer(&mp.fastrand))
-	s1, s0 := t[0], t[1]
-	s1 ^= s1 << 17
-	s1 = s1 ^ s0 ^ s1>>7 ^ s0>>16
-	r := uint64(s0 + s1)
+    // Implement xorshift64+: 2 32-bit xorshift sequences added together.
+    // Xorshift paper: https://www.jstatsoft.org/article/view/v008i14/xorshift.pdf
+    // This generator passes the SmallCrush suite, part of TestU01 framework:
+    // http://simul.iro.umontreal.ca/testu01/tu01.html
+    t := (*[2]uint32)(unsafe.Pointer(&mp.fastrand))
+    s1, s0 := t[0], t[1]
+    s1 ^= s1 << 17
+    s1 = s1 ^ s0 ^ s1>>7 ^ s0>>16
+    r := uint64(s0 + s1)
 
-	s0, s1 = s1, s0
-	s1 ^= s1 << 17
-	s1 = s1 ^ s0 ^ s1>>7 ^ s0>>16
-	r += uint64(s0+s1) << 32
+    s0, s1 = s1, s0
+    s1 ^= s1 << 17
+    s1 = s1 ^ s0 ^ s1>>7 ^ s0>>16
+    r += uint64(s0+s1) << 32
 
-	t[0], t[1] = s0, s1
-	return r
+    t[0], t[1] = s0, s1
+    return r
 }
 
 func fastrandu() uint {
-	if goarch.PtrSize == 4 {
-		return uint(fastrand())
-	}
-	return uint(fastrand64())
+    if goarch.PtrSize == 4 {
+        return uint(fastrand())
+    }
+    return uint(fastrand64())
 }
 
 //go:linkname rand_fastrand64 math/rand.fastrand64
@@ -218,8 +223,8 @@ func memequal(a, b unsafe.Pointer, size uintptr) bool
 //
 //go:nosplit
 func noescape(p unsafe.Pointer) unsafe.Pointer {
-	x := uintptr(p)
-	return unsafe.Pointer(x ^ 0)
+    x := uintptr(p)
+    return unsafe.Pointer(x ^ 0)
 }
 
 // Not all cgocallback frames are actually cgocallback,
@@ -410,19 +415,19 @@ func systemstack_switch()
 
 // alignUp rounds n up to a multiple of a. a must be a power of 2.
 func alignUp(n, a uintptr) uintptr {
-	return (n + a - 1) &^ (a - 1)
+    return (n + a - 1) &^ (a - 1)
 }
 
 // alignDown rounds n down to a multiple of a. a must be a power of 2.
 func alignDown(n, a uintptr) uintptr {
-	return n &^ (a - 1)
+    return n &^ (a - 1)
 }
 
 // divRoundUp returns ceil(n / a).
 func divRoundUp(n, a uintptr) uintptr {
-	// a is generally a power of two. This will get inlined and
-	// the compiler will optimize the division.
-	return (n + a - 1) / a
+    // a is generally a power of two. This will get inlined and
+    // the compiler will optimize the division.
+    return (n + a - 1) / a
 }
 
 // checkASM reports whether assembly runtime checks have passed.
@@ -432,9 +437,9 @@ func memequal_varlen(a, b unsafe.Pointer) bool
 
 // bool2int returns 0 if x is false or 1 if x is true.
 func bool2int(x bool) int {
-	// Avoid branches. In the SSA compiler, this compiles to
-	// exactly what you would want it to.
-	return int(uint8(*(*uint8)(unsafe.Pointer(&x))))
+    // Avoid branches. In the SSA compiler, this compiles to
+    // exactly what you would want it to.
+    return int(uint8(*(*uint8)(unsafe.Pointer(&x))))
 }
 
 // abort crashes the runtime in situations where even throw might not
