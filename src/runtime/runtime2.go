@@ -618,6 +618,7 @@ type p struct {
     pcache      pageCache
     raceprocctx uintptr
 
+    // 不同大小的本地defer池
     deferpool    []*_defer // pool of available defer structs (see panic.go)
     deferpoolbuf [32]*_defer
 
@@ -817,6 +818,7 @@ type schedt struct {
     sudogcache *sudog
 
     // Central pool of available defer structs.
+    // 不同大小的全局defer池
     deferlock mutex
     deferpool *_defer
 
@@ -988,18 +990,19 @@ func extendRandom(r []byte, n int) {
 // All defers are logically part of the stack, so write barriers to
 // initialize them are not required. All defers must be manually scanned,
 // and for heap defers, marked.
+// 该结构保存延迟调用列表中的一个条目
 type _defer struct {
-    started bool
-    heap    bool
+    started bool // 两种情况会为true：panic或退出协程
+    heap    bool // 堆或非堆
     // openDefer indicates that this _defer is for a frame with open-coded
     // defers. We have only one defer record for the entire frame (which may
     // currently have 0, 1, or more defers active).
-    openDefer bool
-    sp        uintptr // sp at time of defer
-    pc        uintptr // pc at time of defer
-    fn        func()  // can be nil for open-coded defers
-    _panic    *_panic // panic that is running defer
-    link      *_defer // next defer on G; can point to either heap or stack!
+    openDefer bool    // 开放代码优化
+    sp        uintptr // sp at time of defer 栈指针
+    pc        uintptr // pc at time of defer 程序计数器
+    fn        func()  // can be nil for open-coded defers 要执行的函数（闭包形式）
+    _panic    *_panic // panic that is running defer 正在运行的defer的panic
+    link      *_defer // next defer on G; can point to either heap or stack! 链表指针，指向下一个defer
 
     // If openDefer is true, the fields below record values about the stack
     // frame and associated function that has the open-coded defer(s). sp
@@ -1011,7 +1014,7 @@ type _defer struct {
     // with sp above (which is the sp associated with the stack frame),
     // framepc/sp can be used as pc/sp pair to continue a stack trace via
     // gentraceback().
-    framepc uintptr
+    framepc uintptr // 栈帧指针
 }
 
 // A _panic holds information about an active panic.
