@@ -344,9 +344,11 @@ func publicationBarrier()
 // A general rule is that the result of getcallersp should be used
 // immediately and can only be passed to nosplit functions.
 
+// 汇编方法，获取当前运行的程序计数器
 //go:noescape
 func getcallerpc() uintptr
 
+// 汇编方法，获取当前运行的栈帧
 //go:noescape
 func getcallersp() uintptr // implemented as an intrinsic on all platforms
 
