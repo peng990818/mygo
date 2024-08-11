@@ -6318,6 +6318,7 @@ func (q *gQueue) popList() gList {
 
 // A gList is a list of Gs linked through g.schedlink. A G can only be
 // on one gQueue or gList at a time.
+// gList 是通过 g.schedlink 链接的 G 列表。一个 G 一次只能位于一个 gQueue 或 gList 上。
 type gList struct {
     head guintptr
 }
