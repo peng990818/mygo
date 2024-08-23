@@ -5,8 +5,8 @@
 package fmt
 
 import (
-	"errors"
-	"sort"
+    "errors"
+    "sort"
 )
 
 // Errorf formats according to a format specifier and returns the string as a
@@ -20,59 +20,60 @@ import (
 // It is invalid to supply the %w verb with an operand that does not implement
 // the error interface. The %w verb is otherwise a synonym for %v.
 func Errorf(format string, a ...any) error {
-	p := newPrinter()
-	p.wrapErrs = true
-	p.doPrintf(format, a)
-	s := string(p.buf)
-	var err error
-	switch len(p.wrappedErrs) {
-	case 0:
-		err = errors.New(s)
-	case 1:
-		w := &wrapError{msg: s}
-		w.err, _ = a[p.wrappedErrs[0]].(error)
-		err = w
-	default:
-		if p.reordered {
-			sort.Ints(p.wrappedErrs)
-		}
-		var errs []error
-		for i, argNum := range p.wrappedErrs {
-			if i > 0 && p.wrappedErrs[i-1] == argNum {
-				continue
-			}
-			if e, ok := a[argNum].(error); ok {
-				errs = append(errs, e)
-			}
-		}
-		err = &wrapErrors{s, errs}
-	}
-	p.free()
-	return err
+    p := newPrinter()
+    p.wrapErrs = true     // 假设格式化过程中可能包含%w，所以设置为true
+    p.doPrintf(format, a) // 拼接格式化的结果，方便打印
+    s := string(p.buf)    // 拼接好的内容取出来
+    // 包装原始错误
+    var err error
+    switch len(p.wrappedErrs) {
+    case 0:
+        err = errors.New(s)
+    case 1:
+        w := &wrapError{msg: s}
+        w.err, _ = a[p.wrappedErrs[0]].(error)
+        err = w
+    default:
+        if p.reordered {
+            sort.Ints(p.wrappedErrs)
+        }
+        var errs []error
+        for i, argNum := range p.wrappedErrs {
+            if i > 0 && p.wrappedErrs[i-1] == argNum {
+                continue
+            }
+            if e, ok := a[argNum].(error); ok {
+                errs = append(errs, e)
+            }
+        }
+        err = &wrapErrors{s, errs}
+    }
+    p.free()
+    return err
 }
 
 type wrapError struct {
-	msg string
-	err error
+    msg string
+    err error
 }
 
 func (e *wrapError) Error() string {
-	return e.msg
+    return e.msg
 }
 
 func (e *wrapError) Unwrap() error {
-	return e.err
+    return e.err
 }
 
 type wrapErrors struct {
-	msg  string
-	errs []error
+    msg  string
+    errs []error
 }
 
 func (e *wrapErrors) Error() string {
-	return e.msg
+    return e.msg
 }
 
 func (e *wrapErrors) Unwrap() []error {
-	return e.errs
+    return e.errs
 }
