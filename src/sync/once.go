@@ -5,7 +5,7 @@
 package sync
 
 import (
-	"sync/atomic"
+    "sync/atomic"
 )
 
 // Once is an object that will perform exactly one action.
@@ -16,13 +16,14 @@ import (
 // the return from f “synchronizes before”
 // the return from any call of once.Do(f).
 type Once struct {
-	// done indicates whether the action has been performed.
-	// It is first in the struct because it is used in the hot path.
-	// The hot path is inlined at every call site.
-	// Placing done first allows more compact instructions on some architectures (amd64/386),
-	// and fewer instructions (to calculate offset) on other architectures.
-	done uint32
-	m    Mutex
+    // done indicates whether the action has been performed.
+    // It is first in the struct because it is used in the hot path.
+    // The hot path is inlined at every call site.
+    // Placing done first allows more compact instructions on some architectures (amd64/386),
+    // and fewer instructions (to calculate offset) on other architectures.
+    // done表示某个动作是否被执行，done放在第一位，在某些架构下可以获得更加紧凑的指令
+    done uint32
+    m    Mutex
 }
 
 // Do calls the function f if and only if Do is being called for the
@@ -45,32 +46,38 @@ type Once struct {
 //
 // If f panics, Do considers it to have returned; future calls of Do return
 // without calling f.
+// Do当且仅当第一次调用时，f会被执行
+// f如果调用了Do会导致死锁
+// 即使f发生了panic，也不会再次调用
 func (o *Once) Do(f func()) {
-	// Note: Here is an incorrect implementation of Do:
-	//
-	//	if atomic.CompareAndSwapUint32(&o.done, 0, 1) {
-	//		f()
-	//	}
-	//
-	// Do guarantees that when it returns, f has finished.
-	// This implementation would not implement that guarantee:
-	// given two simultaneous calls, the winner of the cas would
-	// call f, and the second would return immediately, without
-	// waiting for the first's call to f to complete.
-	// This is why the slow path falls back to a mutex, and why
-	// the atomic.StoreUint32 must be delayed until after f returns.
-
-	if atomic.LoadUint32(&o.done) == 0 {
-		// Outlined slow-path to allow inlining of the fast-path.
-		o.doSlow(f)
-	}
+    // Note: Here is an incorrect implementation of Do:
+    //
+    //	if atomic.CompareAndSwapUint32(&o.done, 0, 1) {
+    //		f()
+    //	}
+    //
+    // Do guarantees that when it returns, f has finished.
+    // This implementation would not implement that guarantee:
+    // given two simultaneous calls, the winner of the cas would
+    // call f, and the second would return immediately, without
+    // waiting for the first's call to f to complete.
+    // This is why the slow path falls back to a mutex, and why
+    // the atomic.StoreUint32 must be delayed until after f returns.
+    // 原子读取Once内部的done属性，为0则进入慢速路径，否则直接调用
+    if atomic.LoadUint32(&o.done) == 0 {
+        // Outlined slow-path to allow inlining of the fast-path.
+        o.doSlow(f)
+    }
 }
 
 func (o *Once) doSlow(f func()) {
-	o.m.Lock()
-	defer o.m.Unlock()
-	if o.done == 0 {
-		defer atomic.StoreUint32(&o.done, 1)
-		f()
-	}
+    // 必须加锁，有可能有很多个协程读到0
+    o.m.Lock()
+    defer o.m.Unlock()
+    // 一个协程拿到锁
+    if o.done == 0 {
+        // 如果是0，代表没执行过，执行f，并更新done值
+        defer atomic.StoreUint32(&o.done, 1)
+        f()
+    }
 }

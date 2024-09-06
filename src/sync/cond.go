@@ -5,8 +5,8 @@
 package sync
 
 import (
-	"sync/atomic"
-	"unsafe"
+    "sync/atomic"
+    "unsafe"
 )
 
 // Cond implements a condition variable, a rendezvous point
@@ -34,18 +34,19 @@ import (
 // [Roberto Clapis's series on advanced concurrency patterns]: https://blogtitle.github.io/categories/concurrency/
 // [Bryan Mills's talk on concurrency patterns]: https://drive.google.com/file/d/1nPdvhB0PutEJzdCq5ms6UI58dp50fcAN/view
 type Cond struct {
-	noCopy noCopy
+    noCopy noCopy
 
-	// L is held while observing or changing the condition
-	L Locker
+    // L is held while observing or changing the condition
+    // 持有的互斥锁
+    L Locker
 
-	notify  notifyList
-	checker copyChecker
+    notify  notifyList  // 通知列表
+    checker copyChecker // 拷贝检查器
 }
 
 // NewCond returns a new Cond with Locker l.
 func NewCond(l Locker) *Cond {
-	return &Cond{L: l}
+    return &Cond{L: l}
 }
 
 // Wait atomically unlocks c.L and suspends execution
@@ -63,12 +64,26 @@ func NewCond(l Locker) *Cond {
 //	}
 //	... make use of condition ...
 //	c.L.Unlock()
+// Wait 原子式的 unlock c.L， 并暂停执行调用的 goroutine。
+// 在稍后执行后，Wait 会在返回前 lock c.L. 与其他系统不同，
+// 除非被 Broadcast 或 Signal 唤醒，否则等待无法返回。
+//
+// 因为等待第一次 resume 时 c.L 没有被锁定，所以当 Wait 返回时，
+// 调用者通常不能认为条件为真。相反，调用者应该在循环中使用 Wait()：
+//
+//    c.L.Lock()
+//    for !condition() {
+//        c.Wait()
+//    }
+//    ... make use of condition ...
+//    c.L.Unlock()
+//
 func (c *Cond) Wait() {
-	c.checker.check()
-	t := runtime_notifyListAdd(&c.notify)
-	c.L.Unlock()
-	runtime_notifyListWait(&c.notify, t)
-	c.L.Lock()
+    c.checker.check()
+    t := runtime_notifyListAdd(&c.notify)
+    c.L.Unlock()
+    runtime_notifyListWait(&c.notify, t)
+    c.L.Lock()
 }
 
 // Signal wakes one goroutine waiting on c, if there is any.
@@ -78,29 +93,38 @@ func (c *Cond) Wait() {
 //
 // Signal() does not affect goroutine scheduling priority; if other goroutines
 // are attempting to lock c.L, they may be awoken before a "waiting" goroutine.
+// Signal 唤醒一个等待 c 的 goroutine（如果存在）
+//
+// 在调用时它可以（不必须）持有一个 c.L
 func (c *Cond) Signal() {
-	c.checker.check()
-	runtime_notifyListNotifyOne(&c.notify)
+    c.checker.check()
+    runtime_notifyListNotifyOne(&c.notify)
 }
 
 // Broadcast wakes all goroutines waiting on c.
 //
 // It is allowed but not required for the caller to hold c.L
 // during the call.
+// Broadcast 唤醒等待 c 的所有 goroutine
+//
+// 调用时它可以（不必须）持久有个 c.L
 func (c *Cond) Broadcast() {
-	c.checker.check()
-	runtime_notifyListNotifyAll(&c.notify)
+    c.checker.check()
+    runtime_notifyListNotifyAll(&c.notify)
 }
 
 // copyChecker holds back pointer to itself to detect object copying.
 type copyChecker uintptr
 
 func (c *copyChecker) check() {
-	if uintptr(*c) != uintptr(unsafe.Pointer(c)) &&
-		!atomic.CompareAndSwapUintptr((*uintptr)(c), 0, uintptr(unsafe.Pointer(c))) &&
-		uintptr(*c) != uintptr(unsafe.Pointer(c)) {
-		panic("sync.Cond is copied")
-	}
+    // 比较存储在copyChecker中的地址和本身的内存地址，如果不同那么可能被复制了
+    // 如果不同，则尝试设置为当前对象的地址。
+    // 然后再次进行比较
+    if uintptr(*c) != uintptr(unsafe.Pointer(c)) &&
+        !atomic.CompareAndSwapUintptr((*uintptr)(c), 0, uintptr(unsafe.Pointer(c))) &&
+        uintptr(*c) != uintptr(unsafe.Pointer(c)) {
+        panic("sync.Cond is copied")
+    }
 }
 
 // noCopy may be added to structs which must not be copied

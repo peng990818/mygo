@@ -6365,15 +6365,20 @@ func setMaxThreads(in int) (out int) {
     return
 }
 
+// 将当前协程与某个处理器P固定绑定的函数
+// 通常用于防止协程在某些操作中被调度到其他处理器上，以确保线程本地状态的一致性
 //go:nosplit
 func procPin() int {
     gp := getg()
     mp := gp.m
 
+    // 增加锁计数，锁住当前M，防止当前的协程被调度器抢占并调度到其他的M或P上
     mp.locks++
+    // 返回M所绑定的P
     return int(mp.p.ptr().id)
 }
 
+// 解除协程与处理器P之间的绑定
 //go:nosplit
 func procUnpin() {
     gp := getg()
