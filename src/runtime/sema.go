@@ -25,6 +25,7 @@ import (
     "unsafe"
 )
 
+// todo 树堆treap待研究
 // Asynchronous semaphore for sync.Mutex.
 
 // A semaRoot holds a balanced tree of sudog with distinct addresses (s.elem).
@@ -38,6 +39,9 @@ import (
 // before we introduced the second level of list, and
 // BenchmarkSemTable/OneAddrCollision/* for a benchmark that exercises this.
 type semaRoot struct {
+    // lock 锁
+    // treap 树堆 存等待的g tree-heap
+    // nwait 等待者的个数
     lock  mutex
     treap *sudog        // root of balanced tree of unique waiters.
     nwait atomic.Uint32 // Number of waiters. Read w/o the lock.
@@ -48,6 +52,7 @@ var semtable semTable
 // Prime to not correlate with any user patterns.
 const semTabSize = 251
 
+// 信号表
 type semTable [semTabSize]struct {
     root semaRoot
     pad  [cpu.CacheLinePadSize - unsafe.Sizeof(semaRoot{})]byte
@@ -102,8 +107,8 @@ func readyWithTime(s *sudog, traceskip int) {
 type semaProfileFlags int
 
 const (
-    semaBlockProfile semaProfileFlags = 1 << iota
-    semaMutexProfile
+    semaBlockProfile semaProfileFlags = 1 << iota // 阻塞事件
+    semaMutexProfile                              // 锁事件
 )
 
 // Called from runtime.
@@ -111,6 +116,7 @@ func semacquire(addr *uint32) {
     semacquire1(addr, false, 0, 0, waitReasonSemacquire)
 }
 
+// 将当期协程存放入树堆中，等待被唤醒
 func semacquire1(addr *uint32, lifo bool, profile semaProfileFlags, skipframes int, reason waitReason) {
     gp := getg()
     if gp != gp.m.curg {
@@ -118,6 +124,7 @@ func semacquire1(addr *uint32, lifo bool, profile semaProfileFlags, skipframes i
     }
 
     // Easy case.
+    // 如果有正在执行 semrelease1 直接获取信号量 返回
     if cansemacquire(addr) {
         return
     }
@@ -135,20 +142,26 @@ func semacquire1(addr *uint32, lifo bool, profile semaProfileFlags, skipframes i
     s.acquiretime = 0
     s.ticket = 0
     if profile&semaBlockProfile != 0 && blockprofilerate > 0 {
+        // 阻塞事件
         t0 = cputicks()
+        // 阻塞没有释放时间
         s.releasetime = -1
     }
     if profile&semaMutexProfile != 0 && mutexprofilerate > 0 {
+        // 锁事件
         if t0 == 0 {
             t0 = cputicks()
         }
+        // 记录获取时间
         s.acquiretime = t0
     }
     for {
         lockWithRank(&root.lock, lockRankRoot)
         // Add ourselves to nwait to disable "easy case" in semrelease.
+        // 添加root的等待者
         root.nwait.Add(1)
         // Check cansemacquire to avoid missed wakeup.
+        // 再次检测是否有正在释放的信号量
         if cansemacquire(addr) {
             root.nwait.Add(-1)
             unlock(&root.lock)
@@ -156,13 +169,18 @@ func semacquire1(addr *uint32, lifo bool, profile semaProfileFlags, skipframes i
         }
         // Any semrelease after the cansemacquire knows we're waiting
         // (we set nwait above), so go to sleep.
+        // 入队 休眠
         root.queue(addr, s, lifo)
+        // 等待被唤醒
         goparkunlock(&root.lock, reason, traceEvGoBlockSync, 4+skipframes)
         if s.ticket != 0 || cansemacquire(addr) {
+            // 已经获取过 或 addr 还可以获取 sema
             break
         }
     }
+    // 被唤醒后是否记录阻塞事件
     if s.releasetime > 0 {
+        // 尝试记录阻塞事件
         blockevent(s.releasetime-t0, 3+skipframes)
     }
     releaseSudog(s)
@@ -172,14 +190,21 @@ func semrelease(addr *uint32) {
     semrelease1(addr, false, 0)
 }
 
+// 唤醒等待协程
+// 解锁单个 addr 的等待 g 并唤醒该 g
 func semrelease1(addr *uint32, handoff bool, skipframes int) {
     root := semtable.rootFor(addr)
+    // 增加信号量
     atomic.Xadd(addr, 1)
 
     // Easy case: no waiters?
     // This check must happen after the xadd, to avoid a missed wakeup
     // (see loop in semacquire).
+    // 检测操作必须在 xadd 后面
+    // 避免错过唤醒
+    // 这边加上 那边获取
     if root.nwait.Load() == 0 {
+        // 没有等待的 g 直接返回
         return
     }
 
@@ -188,25 +213,32 @@ func semrelease1(addr *uint32, handoff bool, skipframes int) {
     if root.nwait.Load() == 0 {
         // The count is already consumed by another goroutine,
         // so no need to wake up another goroutine.
+        // 二次检测
         unlock(&root.lock)
         return
     }
+    // 从树中弹出一个 sudog
     s, t0 := root.dequeue(addr)
     if s != nil {
+        // 弹出有效
         root.nwait.Add(-1)
     }
     unlock(&root.lock)
     if s != nil { // May be slow or even yield, so unlock first
         acquiretime := s.acquiretime
         if acquiretime != 0 {
+            // 有 acquiretime 表示是锁事件 尝试记录锁事件
             mutexevent(t0-acquiretime, 3+skipframes)
         }
         if s.ticket != 0 {
             throw("corrupted semaphore ticket")
         }
         if handoff && cansemacquire(addr) {
+            // 只有外部需要让出调度时才会获取信号量
+            // 标记下次执行 并且 addr还可以被获取
             s.ticket = 1
         }
+        // 唤醒s 加入就绪队列
         readyWithTime(s, 5+skipframes)
         if s.ticket == 1 && getg().m.locks == 0 {
             // Direct G handoff
@@ -225,6 +257,15 @@ func semrelease1(addr *uint32, handoff bool, skipframes int) {
             // regime, and then we start to do direct handoffs of ticket and
             // P.
             // See issue 33747 for discussion.
+            // 标记为1 并且 m 没有被其他 g 锁住
+            // 让出 m 等待下次调度
+            // 即直接调度 s 对应的 g
+            // 请注意，继承了我们的时间片：这是可取的，以避免一个高度竞争的信号量无限期地占用 P
+            // goyield 类似于 Gosched，但它会发出一个“抢占式”跟踪事件
+            // 更重要的是，将当前 G 放在本地 runq 而不是全局 runq 上
+            // 我们只在饥饿状态下执行此操作（handoff=true）
+            // 因为在非饥饿情况下，在我们让出调度时，其他服务员可能会获取信号量，这将是一种浪费
+            // 相反，我们等待进入饥饿状态，然后我们开始直接切换票和 P
             goyield()
         }
     }
@@ -458,6 +499,9 @@ func (root *semaRoot) rotateRight(y *sudog) {
 // notifyList is a ticket-based notification list used to implement sync.Cond.
 //
 // It must be kept in sync with the sync package.
+// 用于 sync.Cond 的通知列表
+// wait 为下一个等待者序号
+// notify 为已经通知过的等待者序号
 type notifyList struct {
     // wait is the ticket number of the next waiter. It is atomically
     // incremented outside the lock.
@@ -480,6 +524,8 @@ type notifyList struct {
     // 的差别小于 2^31，这种情况可以被正确处理。对于 wrap around 的情况而言，
     // 我们需要超过 2^31+ 个 goroutine 阻塞在相同的 condvar 上，这是不可能的。
     //
+    // 下一个被通知的等待者序号 可以不用锁读但是必须锁写
+    // wait 和 notify 可能会重复 但目前不太可能
     notify uint32
 
     // List of parked waiters.

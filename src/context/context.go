@@ -54,11 +54,11 @@
 package context
 
 import (
-	"errors"
-	"internal/reflectlite"
-	"sync"
-	"sync/atomic"
-	"time"
+    "errors"
+    "internal/reflectlite"
+    "sync"
+    "sync/atomic"
+    "time"
 )
 
 // A Context carries a deadline, a cancellation signal, and other values across
@@ -66,97 +66,105 @@ import (
 //
 // Context's methods may be called by multiple goroutines simultaneously.
 type Context interface {
-	// Deadline returns the time when work done on behalf of this context
-	// should be canceled. Deadline returns ok==false when no deadline is
-	// set. Successive calls to Deadline return the same results.
-	Deadline() (deadline time.Time, ok bool)
+    // Deadline returns the time when work done on behalf of this context
+    // should be canceled. Deadline returns ok==false when no deadline is
+    // set. Successive calls to Deadline return the same results.
+    // 截止日期返回应取消代表该上下文完成的工作的时间。如果未设置截止日期，则截止日期返回ok == false。连续调用Deadline会返回相同的结果。
+    Deadline() (deadline time.Time, ok bool)
 
-	// Done returns a channel that's closed when work done on behalf of this
-	// context should be canceled. Done may return nil if this context can
-	// never be canceled. Successive calls to Done return the same value.
-	// The close of the Done channel may happen asynchronously,
-	// after the cancel function returns.
-	//
-	// WithCancel arranges for Done to be closed when cancel is called;
-	// WithDeadline arranges for Done to be closed when the deadline
-	// expires; WithTimeout arranges for Done to be closed when the timeout
-	// elapses.
-	//
-	// Done is provided for use in select statements:
-	//
-	//  // Stream generates values with DoSomething and sends them to out
-	//  // until DoSomething returns an error or ctx.Done is closed.
-	//  func Stream(ctx context.Context, out chan<- Value) error {
-	//  	for {
-	//  		v, err := DoSomething(ctx)
-	//  		if err != nil {
-	//  			return err
-	//  		}
-	//  		select {
-	//  		case <-ctx.Done():
-	//  			return ctx.Err()
-	//  		case out <- v:
-	//  		}
-	//  	}
-	//  }
-	//
-	// See https://blog.golang.org/pipelines for more examples of how to use
-	// a Done channel for cancellation.
-	Done() <-chan struct{}
+    // Done returns a channel that's closed when work done on behalf of this
+    // context should be canceled. Done may return nil if this context can
+    // never be canceled. Successive calls to Done return the same value.
+    // The close of the Done channel may happen asynchronously,
+    // after the cancel function returns.
+    //
+    // WithCancel arranges for Done to be closed when cancel is called;
+    // WithDeadline arranges for Done to be closed when the deadline
+    // expires; WithTimeout arranges for Done to be closed when the timeout
+    // elapses.
+    //
+    // Done is provided for use in select statements:
+    //
+    //  // Stream generates values with DoSomething and sends them to out
+    //  // until DoSomething returns an error or ctx.Done is closed.
+    //  func Stream(ctx context.Context, out chan<- Value) error {
+    //  	for {
+    //  		v, err := DoSomething(ctx)
+    //  		if err != nil {
+    //  			return err
+    //  		}
+    //  		select {
+    //  		case <-ctx.Done():
+    //  			return ctx.Err()
+    //  		case out <- v:
+    //  		}
+    //  	}
+    //  }
+    //
+    // See https://blog.golang.org/pipelines for more examples of how to use
+    // a Done channel for cancellation.
+    // Done 返回一个 channel，当代表该上下文完成的工作应被取消时，该通道将关闭。
+    // 如果此上下文永远无法取消，则可能会返回 nil。
+    // 连续调用 Done 将返回相同的值。在取消函数返回之后，完成 channel 的关闭可能会异步发生。
+    Done() <-chan struct{}
 
-	// If Done is not yet closed, Err returns nil.
-	// If Done is closed, Err returns a non-nil error explaining why:
-	// Canceled if the context was canceled
-	// or DeadlineExceeded if the context's deadline passed.
-	// After Err returns a non-nil error, successive calls to Err return the same error.
-	Err() error
+    // If Done is not yet closed, Err returns nil.
+    // If Done is closed, Err returns a non-nil error explaining why:
+    // Canceled if the context was canceled
+    // or DeadlineExceeded if the context's deadline passed.
+    // After Err returns a non-nil error, successive calls to Err return the same error.
+    // 如果 Done 未被关闭，则 Err 返回 nil；
+    // 如果 Done 已被关闭，则 Err 返回一个非空错误。
+    Err() error
 
-	// Value returns the value associated with this context for key, or nil
-	// if no value is associated with key. Successive calls to Value with
-	// the same key returns the same result.
-	//
-	// Use context values only for request-scoped data that transits
-	// processes and API boundaries, not for passing optional parameters to
-	// functions.
-	//
-	// A key identifies a specific value in a Context. Functions that wish
-	// to store values in Context typically allocate a key in a global
-	// variable then use that key as the argument to context.WithValue and
-	// Context.Value. A key can be any type that supports equality;
-	// packages should define keys as an unexported type to avoid
-	// collisions.
-	//
-	// Packages that define a Context key should provide type-safe accessors
-	// for the values stored using that key:
-	//
-	// 	// Package user defines a User type that's stored in Contexts.
-	// 	package user
-	//
-	// 	import "context"
-	//
-	// 	// User is the type of value stored in the Contexts.
-	// 	type User struct {...}
-	//
-	// 	// key is an unexported type for keys defined in this package.
-	// 	// This prevents collisions with keys defined in other packages.
-	// 	type key int
-	//
-	// 	// userKey is the key for user.User values in Contexts. It is
-	// 	// unexported; clients use user.NewContext and user.FromContext
-	// 	// instead of using this key directly.
-	// 	var userKey key
-	//
-	// 	// NewContext returns a new Context that carries value u.
-	// 	func NewContext(ctx context.Context, u *User) context.Context {
-	// 		return context.WithValue(ctx, userKey, u)
-	// 	}
-	//
-	// 	// FromContext returns the User value stored in ctx, if any.
-	// 	func FromContext(ctx context.Context) (*User, bool) {
-	// 		u, ok := ctx.Value(userKey).(*User)
-	// 		return u, ok
-	// 	}
-	Value(key any) any
+    // Value returns the value associated with this context for key, or nil
+    // if no value is associated with key. Successive calls to Value with
+    // the same key returns the same result.
+    //
+    // Use context values only for request-scoped data that transits
+    // processes and API boundaries, not for passing optional parameters to
+    // functions.
+    //
+    // A key identifies a specific value in a Context. Functions that wish
+    // to store values in Context typically allocate a key in a global
+    // variable then use that key as the argument to context.WithValue and
+    // Context.Value. A key can be any type that supports equality;
+    // packages should define keys as an unexported type to avoid
+    // collisions.
+    //
+    // Packages that define a Context key should provide type-safe accessors
+    // for the values stored using that key:
+    //
+    // 	// Package user defines a User type that's stored in Contexts.
+    // 	package user
+    //
+    // 	import "context"
+    //
+    // 	// User is the type of value stored in the Contexts.
+    // 	type User struct {...}
+    //
+    // 	// key is an unexported type for keys defined in this package.
+    // 	// This prevents collisions with keys defined in other packages.
+    // 	type key int
+    //
+    // 	// userKey is the key for user.User values in Contexts. It is
+    // 	// unexported; clients use user.NewContext and user.FromContext
+    // 	// instead of using this key directly.
+    // 	var userKey key
+    //
+    // 	// NewContext returns a new Context that carries value u.
+    // 	func NewContext(ctx context.Context, u *User) context.Context {
+    // 		return context.WithValue(ctx, userKey, u)
+    // 	}
+    //
+    // 	// FromContext returns the User value stored in ctx, if any.
+    // 	func FromContext(ctx context.Context) (*User, bool) {
+    // 		u, ok := ctx.Value(userKey).(*User)
+    // 		return u, ok
+    // 	}
+    // Value 返回了与当前上下文使用 key 相关联的值；
+    // 没有关联的 key 时将返回 nil。
+    Value(key any) any
 }
 
 // Canceled is the error returned by Context.Err when the context is canceled.
@@ -177,34 +185,34 @@ func (deadlineExceededError) Temporary() bool { return true }
 type emptyCtx int
 
 func (*emptyCtx) Deadline() (deadline time.Time, ok bool) {
-	return
+    return
 }
 
 func (*emptyCtx) Done() <-chan struct{} {
-	return nil
+    return nil
 }
 
 func (*emptyCtx) Err() error {
-	return nil
+    return nil
 }
 
 func (*emptyCtx) Value(key any) any {
-	return nil
+    return nil
 }
 
 func (e *emptyCtx) String() string {
-	switch e {
-	case background:
-		return "context.Background"
-	case todo:
-		return "context.TODO"
-	}
-	return "unknown empty Context"
+    switch e {
+    case background:
+        return "context.Background"
+    case todo:
+        return "context.TODO"
+    }
+    return "unknown empty Context"
 }
 
 var (
-	background = new(emptyCtx)
-	todo       = new(emptyCtx)
+    background = new(emptyCtx)
+    todo       = new(emptyCtx)
 )
 
 // Background returns a non-nil, empty Context. It is never canceled, has no
@@ -212,7 +220,7 @@ var (
 // initialization, and tests, and as the top-level Context for incoming
 // requests.
 func Background() Context {
-	return background
+    return background
 }
 
 // TODO returns a non-nil, empty Context. Code should use context.TODO when
@@ -220,7 +228,7 @@ func Background() Context {
 // surrounding function has not yet been extended to accept a Context
 // parameter).
 func TODO() Context {
-	return todo
+    return todo
 }
 
 // A CancelFunc tells an operation to abandon its work.
@@ -236,8 +244,8 @@ type CancelFunc func()
 // Canceling this context releases resources associated with it, so code should
 // call cancel as soon as the operations running in this Context complete.
 func WithCancel(parent Context) (ctx Context, cancel CancelFunc) {
-	c := withCancel(parent)
-	return c, func() { c.cancel(true, Canceled, nil) }
+    c := withCancel(parent)
+    return c, func() { c.cancel(true, Canceled, nil) }
 }
 
 // A CancelCauseFunc behaves like a CancelFunc but additionally sets the cancellation cause.
@@ -264,17 +272,17 @@ type CancelCauseFunc func(cause error)
 //	ctx.Err() // returns context.Canceled
 //	context.Cause(ctx) // returns myError
 func WithCancelCause(parent Context) (ctx Context, cancel CancelCauseFunc) {
-	c := withCancel(parent)
-	return c, func(cause error) { c.cancel(true, Canceled, cause) }
+    c := withCancel(parent)
+    return c, func(cause error) { c.cancel(true, Canceled, cause) }
 }
 
 func withCancel(parent Context) *cancelCtx {
-	if parent == nil {
-		panic("cannot create context from nil parent")
-	}
-	c := newCancelCtx(parent)
-	propagateCancel(parent, c)
-	return c
+    if parent == nil {
+        panic("cannot create context from nil parent")
+    }
+    c := newCancelCtx(parent)
+    propagateCancel(parent, c)
+    return c
 }
 
 // Cause returns a non-nil error explaining why c was canceled.
@@ -284,17 +292,17 @@ func withCancel(parent Context) *cancelCtx {
 // Otherwise Cause(c) returns the same value as c.Err().
 // Cause returns nil if c has not been canceled yet.
 func Cause(c Context) error {
-	if cc, ok := c.Value(&cancelCtxKey).(*cancelCtx); ok {
-		cc.mu.Lock()
-		defer cc.mu.Unlock()
-		return cc.cause
-	}
-	return nil
+    if cc, ok := c.Value(&cancelCtxKey).(*cancelCtx); ok {
+        cc.mu.Lock()
+        defer cc.mu.Unlock()
+        return cc.cause
+    }
+    return nil
 }
 
 // newCancelCtx returns an initialized cancelCtx.
 func newCancelCtx(parent Context) *cancelCtx {
-	return &cancelCtx{Context: parent}
+    return &cancelCtx{Context: parent}
 }
 
 // goroutines counts the number of goroutines ever created; for testing.
@@ -302,41 +310,41 @@ var goroutines atomic.Int32
 
 // propagateCancel arranges for child to be canceled when parent is.
 func propagateCancel(parent Context, child canceler) {
-	done := parent.Done()
-	if done == nil {
-		return // parent is never canceled
-	}
+    done := parent.Done()
+    if done == nil {
+        return // parent is never canceled
+    }
 
-	select {
-	case <-done:
-		// parent is already canceled
-		child.cancel(false, parent.Err(), Cause(parent))
-		return
-	default:
-	}
+    select {
+    case <-done:
+        // parent is already canceled
+        child.cancel(false, parent.Err(), Cause(parent))
+        return
+    default:
+    }
 
-	if p, ok := parentCancelCtx(parent); ok {
-		p.mu.Lock()
-		if p.err != nil {
-			// parent has already been canceled
-			child.cancel(false, p.err, p.cause)
-		} else {
-			if p.children == nil {
-				p.children = make(map[canceler]struct{})
-			}
-			p.children[child] = struct{}{}
-		}
-		p.mu.Unlock()
-	} else {
-		goroutines.Add(1)
-		go func() {
-			select {
-			case <-parent.Done():
-				child.cancel(false, parent.Err(), Cause(parent))
-			case <-child.Done():
-			}
-		}()
-	}
+    if p, ok := parentCancelCtx(parent); ok {
+        p.mu.Lock()
+        if p.err != nil {
+            // parent has already been canceled
+            child.cancel(false, p.err, p.cause)
+        } else {
+            if p.children == nil {
+                p.children = make(map[canceler]struct{})
+            }
+            p.children[child] = struct{}{}
+        }
+        p.mu.Unlock()
+    } else {
+        goroutines.Add(1)
+        go func() {
+            select {
+            case <-parent.Done():
+                child.cancel(false, parent.Err(), Cause(parent))
+            case <-child.Done():
+            }
+        }()
+    }
 }
 
 // &cancelCtxKey is the key that a cancelCtx returns itself for.
@@ -349,137 +357,137 @@ var cancelCtxKey int
 // has been wrapped in a custom implementation providing a
 // different done channel, in which case we should not bypass it.)
 func parentCancelCtx(parent Context) (*cancelCtx, bool) {
-	done := parent.Done()
-	if done == closedchan || done == nil {
-		return nil, false
-	}
-	p, ok := parent.Value(&cancelCtxKey).(*cancelCtx)
-	if !ok {
-		return nil, false
-	}
-	pdone, _ := p.done.Load().(chan struct{})
-	if pdone != done {
-		return nil, false
-	}
-	return p, true
+    done := parent.Done()
+    if done == closedchan || done == nil {
+        return nil, false
+    }
+    p, ok := parent.Value(&cancelCtxKey).(*cancelCtx)
+    if !ok {
+        return nil, false
+    }
+    pdone, _ := p.done.Load().(chan struct{})
+    if pdone != done {
+        return nil, false
+    }
+    return p, true
 }
 
 // removeChild removes a context from its parent.
 func removeChild(parent Context, child canceler) {
-	p, ok := parentCancelCtx(parent)
-	if !ok {
-		return
-	}
-	p.mu.Lock()
-	if p.children != nil {
-		delete(p.children, child)
-	}
-	p.mu.Unlock()
+    p, ok := parentCancelCtx(parent)
+    if !ok {
+        return
+    }
+    p.mu.Lock()
+    if p.children != nil {
+        delete(p.children, child)
+    }
+    p.mu.Unlock()
 }
 
 // A canceler is a context type that can be canceled directly. The
 // implementations are *cancelCtx and *timerCtx.
 type canceler interface {
-	cancel(removeFromParent bool, err, cause error)
-	Done() <-chan struct{}
+    cancel(removeFromParent bool, err, cause error)
+    Done() <-chan struct{}
 }
 
 // closedchan is a reusable closed channel.
 var closedchan = make(chan struct{})
 
 func init() {
-	close(closedchan)
+    close(closedchan)
 }
 
 // A cancelCtx can be canceled. When canceled, it also cancels any children
 // that implement canceler.
 type cancelCtx struct {
-	Context
+    Context
 
-	mu       sync.Mutex            // protects following fields
-	done     atomic.Value          // of chan struct{}, created lazily, closed by first cancel call
-	children map[canceler]struct{} // set to nil by the first cancel call
-	err      error                 // set to non-nil by the first cancel call
-	cause    error                 // set to non-nil by the first cancel call
+    mu       sync.Mutex            // protects following fields
+    done     atomic.Value          // of chan struct{}, created lazily, closed by first cancel call
+    children map[canceler]struct{} // set to nil by the first cancel call
+    err      error                 // set to non-nil by the first cancel call
+    cause    error                 // set to non-nil by the first cancel call
 }
 
 func (c *cancelCtx) Value(key any) any {
-	if key == &cancelCtxKey {
-		return c
-	}
-	return value(c.Context, key)
+    if key == &cancelCtxKey {
+        return c
+    }
+    return value(c.Context, key)
 }
 
 func (c *cancelCtx) Done() <-chan struct{} {
-	d := c.done.Load()
-	if d != nil {
-		return d.(chan struct{})
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	d = c.done.Load()
-	if d == nil {
-		d = make(chan struct{})
-		c.done.Store(d)
-	}
-	return d.(chan struct{})
+    d := c.done.Load()
+    if d != nil {
+        return d.(chan struct{})
+    }
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    d = c.done.Load()
+    if d == nil {
+        d = make(chan struct{})
+        c.done.Store(d)
+    }
+    return d.(chan struct{})
 }
 
 func (c *cancelCtx) Err() error {
-	c.mu.Lock()
-	err := c.err
-	c.mu.Unlock()
-	return err
+    c.mu.Lock()
+    err := c.err
+    c.mu.Unlock()
+    return err
 }
 
 type stringer interface {
-	String() string
+    String() string
 }
 
 func contextName(c Context) string {
-	if s, ok := c.(stringer); ok {
-		return s.String()
-	}
-	return reflectlite.TypeOf(c).String()
+    if s, ok := c.(stringer); ok {
+        return s.String()
+    }
+    return reflectlite.TypeOf(c).String()
 }
 
 func (c *cancelCtx) String() string {
-	return contextName(c.Context) + ".WithCancel"
+    return contextName(c.Context) + ".WithCancel"
 }
 
 // cancel closes c.done, cancels each of c's children, and, if
 // removeFromParent is true, removes c from its parent's children.
 // cancel sets c.cause to cause if this is the first time c is canceled.
 func (c *cancelCtx) cancel(removeFromParent bool, err, cause error) {
-	if err == nil {
-		panic("context: internal error: missing cancel error")
-	}
-	if cause == nil {
-		cause = err
-	}
-	c.mu.Lock()
-	if c.err != nil {
-		c.mu.Unlock()
-		return // already canceled
-	}
-	c.err = err
-	c.cause = cause
-	d, _ := c.done.Load().(chan struct{})
-	if d == nil {
-		c.done.Store(closedchan)
-	} else {
-		close(d)
-	}
-	for child := range c.children {
-		// NOTE: acquiring the child's lock while holding parent's lock.
-		child.cancel(false, err, cause)
-	}
-	c.children = nil
-	c.mu.Unlock()
+    if err == nil {
+        panic("context: internal error: missing cancel error")
+    }
+    if cause == nil {
+        cause = err
+    }
+    c.mu.Lock()
+    if c.err != nil {
+        c.mu.Unlock()
+        return // already canceled
+    }
+    c.err = err
+    c.cause = cause
+    d, _ := c.done.Load().(chan struct{})
+    if d == nil {
+        c.done.Store(closedchan)
+    } else {
+        close(d)
+    }
+    for child := range c.children {
+        // NOTE: acquiring the child's lock while holding parent's lock.
+        child.cancel(false, err, cause)
+    }
+    c.children = nil
+    c.mu.Unlock()
 
-	if removeFromParent {
-		removeChild(c.Context, c)
-	}
+    if removeFromParent {
+        removeChild(c.Context, c)
+    }
 }
 
 // WithDeadline returns a copy of the parent context with the deadline adjusted
@@ -492,65 +500,65 @@ func (c *cancelCtx) cancel(removeFromParent bool, err, cause error) {
 // Canceling this context releases resources associated with it, so code should
 // call cancel as soon as the operations running in this Context complete.
 func WithDeadline(parent Context, d time.Time) (Context, CancelFunc) {
-	if parent == nil {
-		panic("cannot create context from nil parent")
-	}
-	if cur, ok := parent.Deadline(); ok && cur.Before(d) {
-		// The current deadline is already sooner than the new one.
-		return WithCancel(parent)
-	}
-	c := &timerCtx{
-		cancelCtx: newCancelCtx(parent),
-		deadline:  d,
-	}
-	propagateCancel(parent, c)
-	dur := time.Until(d)
-	if dur <= 0 {
-		c.cancel(true, DeadlineExceeded, nil) // deadline has already passed
-		return c, func() { c.cancel(false, Canceled, nil) }
-	}
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.err == nil {
-		c.timer = time.AfterFunc(dur, func() {
-			c.cancel(true, DeadlineExceeded, nil)
-		})
-	}
-	return c, func() { c.cancel(true, Canceled, nil) }
+    if parent == nil {
+        panic("cannot create context from nil parent")
+    }
+    if cur, ok := parent.Deadline(); ok && cur.Before(d) {
+        // The current deadline is already sooner than the new one.
+        return WithCancel(parent)
+    }
+    c := &timerCtx{
+        cancelCtx: newCancelCtx(parent),
+        deadline:  d,
+    }
+    propagateCancel(parent, c)
+    dur := time.Until(d)
+    if dur <= 0 {
+        c.cancel(true, DeadlineExceeded, nil) // deadline has already passed
+        return c, func() { c.cancel(false, Canceled, nil) }
+    }
+    c.mu.Lock()
+    defer c.mu.Unlock()
+    if c.err == nil {
+        c.timer = time.AfterFunc(dur, func() {
+            c.cancel(true, DeadlineExceeded, nil)
+        })
+    }
+    return c, func() { c.cancel(true, Canceled, nil) }
 }
 
 // A timerCtx carries a timer and a deadline. It embeds a cancelCtx to
 // implement Done and Err. It implements cancel by stopping its timer then
 // delegating to cancelCtx.cancel.
 type timerCtx struct {
-	*cancelCtx
-	timer *time.Timer // Under cancelCtx.mu.
+    *cancelCtx
+    timer *time.Timer // Under cancelCtx.mu.
 
-	deadline time.Time
+    deadline time.Time
 }
 
 func (c *timerCtx) Deadline() (deadline time.Time, ok bool) {
-	return c.deadline, true
+    return c.deadline, true
 }
 
 func (c *timerCtx) String() string {
-	return contextName(c.cancelCtx.Context) + ".WithDeadline(" +
-		c.deadline.String() + " [" +
-		time.Until(c.deadline).String() + "])"
+    return contextName(c.cancelCtx.Context) + ".WithDeadline(" +
+        c.deadline.String() + " [" +
+        time.Until(c.deadline).String() + "])"
 }
 
 func (c *timerCtx) cancel(removeFromParent bool, err, cause error) {
-	c.cancelCtx.cancel(false, err, cause)
-	if removeFromParent {
-		// Remove this timerCtx from its parent cancelCtx's children.
-		removeChild(c.cancelCtx.Context, c)
-	}
-	c.mu.Lock()
-	if c.timer != nil {
-		c.timer.Stop()
-		c.timer = nil
-	}
-	c.mu.Unlock()
+    c.cancelCtx.cancel(false, err, cause)
+    if removeFromParent {
+        // Remove this timerCtx from its parent cancelCtx's children.
+        removeChild(c.cancelCtx.Context, c)
+    }
+    c.mu.Lock()
+    if c.timer != nil {
+        c.timer.Stop()
+        c.timer = nil
+    }
+    c.mu.Unlock()
 }
 
 // WithTimeout returns WithDeadline(parent, time.Now().Add(timeout)).
@@ -564,7 +572,7 @@ func (c *timerCtx) cancel(removeFromParent bool, err, cause error) {
 //		return slowOperation(ctx)
 //	}
 func WithTimeout(parent Context, timeout time.Duration) (Context, CancelFunc) {
-	return WithDeadline(parent, time.Now().Add(timeout))
+    return WithDeadline(parent, time.Now().Add(timeout))
 }
 
 // WithValue returns a copy of parent in which the value associated with key is
@@ -581,73 +589,73 @@ func WithTimeout(parent Context, timeout time.Duration) (Context, CancelFunc) {
 // struct{}. Alternatively, exported context key variables' static
 // type should be a pointer or interface.
 func WithValue(parent Context, key, val any) Context {
-	if parent == nil {
-		panic("cannot create context from nil parent")
-	}
-	if key == nil {
-		panic("nil key")
-	}
-	if !reflectlite.TypeOf(key).Comparable() {
-		panic("key is not comparable")
-	}
-	return &valueCtx{parent, key, val}
+    if parent == nil {
+        panic("cannot create context from nil parent")
+    }
+    if key == nil {
+        panic("nil key")
+    }
+    if !reflectlite.TypeOf(key).Comparable() {
+        panic("key is not comparable")
+    }
+    return &valueCtx{parent, key, val}
 }
 
 // A valueCtx carries a key-value pair. It implements Value for that key and
 // delegates all other calls to the embedded Context.
 type valueCtx struct {
-	Context
-	key, val any
+    Context
+    key, val any
 }
 
 // stringify tries a bit to stringify v, without using fmt, since we don't
 // want context depending on the unicode tables. This is only used by
 // *valueCtx.String().
 func stringify(v any) string {
-	switch s := v.(type) {
-	case stringer:
-		return s.String()
-	case string:
-		return s
-	}
-	return "<not Stringer>"
+    switch s := v.(type) {
+    case stringer:
+        return s.String()
+    case string:
+        return s
+    }
+    return "<not Stringer>"
 }
 
 func (c *valueCtx) String() string {
-	return contextName(c.Context) + ".WithValue(type " +
-		reflectlite.TypeOf(c.key).String() +
-		", val " + stringify(c.val) + ")"
+    return contextName(c.Context) + ".WithValue(type " +
+        reflectlite.TypeOf(c.key).String() +
+        ", val " + stringify(c.val) + ")"
 }
 
 func (c *valueCtx) Value(key any) any {
-	if c.key == key {
-		return c.val
-	}
-	return value(c.Context, key)
+    if c.key == key {
+        return c.val
+    }
+    return value(c.Context, key)
 }
 
 func value(c Context, key any) any {
-	for {
-		switch ctx := c.(type) {
-		case *valueCtx:
-			if key == ctx.key {
-				return ctx.val
-			}
-			c = ctx.Context
-		case *cancelCtx:
-			if key == &cancelCtxKey {
-				return c
-			}
-			c = ctx.Context
-		case *timerCtx:
-			if key == &cancelCtxKey {
-				return ctx.cancelCtx
-			}
-			c = ctx.Context
-		case *emptyCtx:
-			return nil
-		default:
-			return c.Value(key)
-		}
-	}
+    for {
+        switch ctx := c.(type) {
+        case *valueCtx:
+            if key == ctx.key {
+                return ctx.val
+            }
+            c = ctx.Context
+        case *cancelCtx:
+            if key == &cancelCtxKey {
+                return c
+            }
+            c = ctx.Context
+        case *timerCtx:
+            if key == &cancelCtxKey {
+                return ctx.cancelCtx
+            }
+            c = ctx.Context
+        case *emptyCtx:
+            return nil
+        default:
+            return c.Value(key)
+        }
+    }
 }
