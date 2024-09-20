@@ -197,6 +197,7 @@ type note struct {
 type funcval struct {
     fn uintptr
     // variable-size, fn-specific data here
+    // 变长大小，fn的数据应在fn之后
 }
 
 type iface struct {
@@ -273,6 +274,7 @@ func (gp *guintptr) cas(old, new guintptr) bool {
 // setGNoWB performs *gp = new without a write barrier.
 // For times when it's impractical to use a guintptr.
 //
+// setGNoWB 当使用 guintptr 不可行时，在没有 write barrier 下执行 *gp = new
 //go:nosplit
 //go:nowritebarrier
 func setGNoWB(gp **g, new *g) {
@@ -307,6 +309,7 @@ func (mp *muintptr) set(m *m) { *mp = muintptr(unsafe.Pointer(m)) }
 // setMNoWB performs *mp = new without a write barrier.
 // For times when it's impractical to use an muintptr.
 //
+// setMNoWB 当使用 muintptr 不可行时，在没有 write barrier 下执行 *mp = new
 //go:nosplit
 //go:nowritebarrier
 func setMNoWB(mp **m, new *m) {

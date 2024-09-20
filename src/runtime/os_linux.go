@@ -157,6 +157,7 @@ const (
         _CLONE_THREAD /* revisit - okay for now */
 )
 
+// 系统调用，用来创建线程
 //go:noescape
 func clone(flags int32, stk, mp, gp, fn unsafe.Pointer) int32
 
@@ -175,8 +176,12 @@ func newosproc(mp *m) {
     // Disable signals during clone, so that the new thread starts
     // with signals disabled. It will enable them in minit.
     var oset sigset
+    // 在创建新线程之前，首先使用 sigprocmask 屏蔽所有信号。
+    // 这是为了确保在 clone 系统调用过程中，新创建的线程不会收到任何信号，避免在未初始化完成时处理信号。
+    // 新线程将在其启动后自行启用信号处理。
     sigprocmask(_SIG_SETMASK, &sigset_all, &oset)
     ret := retryOnEAGAIN(func() int32 {
+        // 线程创建成功后，立即去调用mstart
         r := clone(cloneFlags, stk, unsafe.Pointer(mp), unsafe.Pointer(mp.g0), unsafe.Pointer(abi.FuncPCABI0(mstart)))
         // clone returns positive TID, negative errno.
         // We don't care about the TID.
@@ -185,8 +190,10 @@ func newosproc(mp *m) {
         }
         return -r
     })
+    // clone 调用完成后，恢复之前保存的信号屏蔽状态，允许新线程接收信号。
     sigprocmask(_SIG_SETMASK, &oset, nil)
 
+    // 错误处理
     if ret != 0 {
         print("runtime: failed to create new OS thread (have ", mcount(), " already; errno=", ret, ")\n")
         if ret == _EAGAIN {

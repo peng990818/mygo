@@ -417,6 +417,7 @@ TEXT runtime·mstart(SB),NOSPLIT|TOPFRAME,$0
 
 // func gogo(buf *gobuf)
 // restore state from Gobuf; longjmp
+// gobuf保存了协程的上下文信息
 TEXT runtime·gogo(SB), NOSPLIT, $0-8
 	MOVQ	buf+0(FP), BX		// gobuf
 	MOVQ	gobuf_g(BX), DX
@@ -424,28 +425,35 @@ TEXT runtime·gogo(SB), NOSPLIT, $0-8
 	JMP	gogo<>(SB)
 
 TEXT gogo<>(SB), NOSPLIT, $0
+    // 从线程本地存储 (TLS) 获取指向当前 goroutine g 结构的指针。
 	get_tls(CX)
+	// 设置g的寄存器
 	MOVQ	DX, g(CX)
 	MOVQ	DX, R14		// set the g register
+	// 恢复协程的上下文
 	MOVQ	gobuf_sp(BX), SP	// restore SP
 	MOVQ	gobuf_ret(BX), AX
 	MOVQ	gobuf_ctxt(BX), DX
 	MOVQ	gobuf_bp(BX), BP
+	// 清理gobuf中的值
 	MOVQ	$0, gobuf_sp(BX)	// clear to help garbage collector
 	MOVQ	$0, gobuf_ret(BX)
 	MOVQ	$0, gobuf_ctxt(BX)
 	MOVQ	$0, gobuf_bp(BX)
+	// 获取 g 要执行的函数的入口地址
 	MOVQ	gobuf_pc(BX), BX
+	// 执行函数
 	JMP	BX
-
 // func mcall(fn func(*g))
 // Switch to m->g0's stack, call fn(g).
 // Fn must never return. It should gogo(&g->sched)
 // to keep running g.
+// 用于将当前的 Goroutine（g）切换到与其关联的系统栈（即 g0 的栈），并调用一个不会返回的函数 fn
 TEXT runtime·mcall<ABIInternal>(SB), NOSPLIT, $0-8
 	MOVQ	AX, DX	// DX = fn
 
 	// save state in g->sched
+	// 保存当前 Goroutine 的执行状态到 g->sched
 	MOVQ	0(SP), BX	// caller's PC
 	MOVQ	BX, (g_sched+gobuf_pc)(R14)
 	LEAQ	fn+0(FP), BX	// caller's SP
@@ -453,12 +461,14 @@ TEXT runtime·mcall<ABIInternal>(SB), NOSPLIT, $0-8
 	MOVQ	BP, (g_sched+gobuf_bp)(R14)
 
 	// switch to m->g0 & its stack, call fn
+	// 切换到 g0
 	MOVQ	g_m(R14), BX
 	MOVQ	m_g0(BX), SI	// SI = g.m.g0
 	CMPQ	SI, R14	// if g == m->g0 call badmcall
 	JNE	goodm
 	JMP	runtime·badmcall(SB)
 goodm:
+    // 切换 Goroutine 到 g0，并准备调用 fn
 	MOVQ	R14, AX		// AX (and arg 0) = g
 	MOVQ	SI, R14		// g = g.m.g0
 	get_tls(CX)		// Set G in TLS
@@ -467,9 +477,11 @@ goodm:
 	PUSHQ	AX	// open up space for fn's arg spill slot
 	MOVQ	0(DX), R12
 	CALL	R12		// fn(g)
+	// 清理并处理错误
 	POPQ	AX
 	JMP	runtime·badmcall2(SB)
 	RET
+
 
 // systemstack_switch is a dummy routine that systemstack leaves at the bottom
 // of the G stack. We need to distinguish the routine that

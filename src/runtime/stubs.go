@@ -416,6 +416,7 @@ func call1073741824(typ, fn, stackArgs unsafe.Pointer, stackArgsSize, stackRetOf
 func systemstack_switch()
 
 // alignUp rounds n up to a multiple of a. a must be a power of 2.
+// alignUp 将 n 向上舍入为 a 的倍数。 a 必须是 2 的幂。
 func alignUp(n, a uintptr) uintptr {
     return (n + a - 1) &^ (a - 1)
 }
