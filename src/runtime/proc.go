@@ -2243,21 +2243,26 @@ const (
 // newmHandoff contains a list of m structures that need new OS threads.
 // This is used by newm in situations where newm itself can't safely
 // start an OS thread.
+// newmHandoff 包含需要新 OS 线程的 m 的列表。
+// 在 newm 本身无法安全启动 OS 线程的情况下，newm 会使用它。
 var newmHandoff struct {
     lock mutex
 
     // newm points to a list of M structures that need new OS
     // threads. The list is linked through m.schedlink.
+    // newm 指向需要新 OS 线程的M结构列表。 该列表通过 m.schedlink 链接。
     newm muintptr
 
     // waiting indicates that wake needs to be notified when an m
     // is put on the list.
+    // waiting 表示当 m 列入列表时需要通知唤醒。
     waiting bool
     wake    note
 
     // haveTemplateThread indicates that the templateThread has
     // been started. This is not protected by lock. Use cas to set
     // to 1.
+    // haveTemplateThread 表示 templateThread 已经启动。没有锁保护，使用 cas 设置为 1。
     haveTemplateThread uint32
 }
 
@@ -2357,6 +2362,9 @@ func newm1(mp *m) {
 // running.
 //
 // The calling thread must itself be in a known-good state.
+// 如果模板线程尚未运行，则startTemplateThread将启动它。
+//
+// 调用线程本身必须处于已知良好状态。
 func startTemplateThread() {
     if GOARCH == "wasm" { // no threads on wasm yet
         return
@@ -2384,6 +2392,15 @@ func startTemplateThread() {
 // templateThread runs on an M without a P, so it must not have write
 // barriers.
 //
+// templateThread是处于已知良好状态的线程，仅当调用线程可能不是良好状态时，
+// 该线程仅用于在已知良好状态下启动新线程。
+//
+// 许多程序不需要这个，所以当我们第一次进入可能导致在未知状态的线程上运行的状态时，
+// templateThread会懒启动。
+//
+// templateThread 在没有 P 的 M 上运行，因此它必须没有写障碍。
+//
+// 模版线程本身不会退出，只会在需要的时候创建M
 //go:nowritebarrierrec
 func templateThread() {
     lock(&sched.lock)
@@ -2405,9 +2422,11 @@ func templateThread() {
             }
             lock(&newmHandoff.lock)
         }
+        // 等待新的创建请求
         newmHandoff.waiting = true
         noteclear(&newmHandoff.wake)
         unlock(&newmHandoff.lock)
+        // 创建好后模版线程会休眠
         notesleep(&newmHandoff.wake)
     }
 }
@@ -2684,6 +2703,8 @@ func wakep() {
 
 // Stops execution of the current m that is locked to a g until the g is runnable again.
 // Returns with acquired P.
+// 停止当前正在执行锁住的 g 的 m 的执行，直到 g 重新变为 runnable。
+// 返回获得的 P
 func stoplockedm() {
     gp := getg()
 
@@ -2692,11 +2713,13 @@ func stoplockedm() {
     }
     if gp.m.p != 0 {
         // Schedule another M to run this p.
+        // 调度其他M来运行P
         pp := releasep()
         handoffp(pp)
     }
     incidlelocked(1)
     // Wait until another thread schedules lockedg again.
+    // 等待直到其他线程可以再次调度 lockedg
     mPark()
     status := readgstatus(gp.m.lockedg.ptr())
     if status&^_Gscan != _Grunnable {
@@ -4810,12 +4833,15 @@ func Breakpoint() {
 // after they modify m.locked. Do not allow preemption during this call,
 // or else the m might be different in this function than in the caller.
 //
+// dolockOSThread 在修改 m.locked 后由 LockOSThread 和 lockOSThread 调用。
+// 在此调用期间不允许抢占，否则此函数中的 m 可能与调用者中的 m 不同。
 //go:nosplit
 func dolockOSThread() {
     if GOARCH == "wasm" {
         return // no threads on wasm yet
     }
     gp := getg()
+    // 将g和m互相锁定
     gp.m.lockedg.set(gp)
     gp.lockedm.set(gp.m)
 }
@@ -4841,6 +4867,7 @@ func LockOSThread() {
         // If we need to start a new thread from the locked
         // thread, we need the template thread. Start it now
         // while we're in a known-good state.
+        // 开始一个模版线程
         startTemplateThread()
     }
     gp := getg()
@@ -4862,6 +4889,8 @@ func lockOSThread() {
 // after they update m->locked. Do not allow preemption during this call,
 // or else the m might be in different in this function than in the caller.
 //
+// dounlockOSThread 在更新 m->locked 后由 UnlockOSThread 和 unlockOSThread 调用。
+// 在此调用期间不允许抢占，否则此函数中的 m 可能与调用者中的 m 不同。
 //go:nosplit
 func dounlockOSThread() {
     if GOARCH == "wasm" {
@@ -4871,6 +4900,7 @@ func dounlockOSThread() {
     if gp.m.lockedInt != 0 || gp.m.lockedExt != 0 {
         return
     }
+    // 锁字段清零
     gp.m.lockedg = 0
     gp.lockedm = 0
 }
@@ -4894,6 +4924,7 @@ func UnlockOSThread() {
     if gp.m.lockedExt == 0 {
         return
     }
+    // 减少计数
     gp.m.lockedExt--
     dounlockOSThread()
 }
@@ -4904,6 +4935,7 @@ func unlockOSThread() {
     if gp.m.lockedInt == 0 {
         systemstack(badunlockosthread)
     }
+    // 减少计数
     gp.m.lockedInt--
     dounlockOSThread()
 }
